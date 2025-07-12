@@ -208,3 +208,52 @@ class ContentIntentAnalyzer:
         
         # Vectorize content
         pages = list(page_contents.keys())
+        contents = list(page_contents.values())
+        
+        try:
+            content_vectors = self.vectorizer.fit_transform(contents)
+            similarity_matrix = cosine_similarity(content_vectors)
+            
+            # Analyze similarities
+            similar_pairs = []
+            different_pairs = []
+            
+            for i in range(len(pages)):
+                for j in range(i + 1, len(pages)):
+                    similarity = similarity_matrix[i][j]
+                    pair = {
+                        'page1': pages[i],
+                        'page2': pages[j],
+                        'similarity': round(similarity, 2)
+                    }
+                    
+                    if similarity > 0.7:
+                        similar_pairs.append(pair)
+                    elif similarity < 0.3:
+                        different_pairs.append(pair)
+            
+            # Calculate overall alignment
+            avg_similarity = similarity_matrix[np.triu_indices_from(similarity_matrix, k=1)].mean()
+            
+            return {
+                'alignment_score': round(avg_similarity, 2),
+                'similar_pages': similar_pairs,
+                'different_pages': different_pairs,
+                'recommendation': self._get_alignment_recommendation(avg_similarity)
+            }
+            
+        except Exception as e:
+            return {
+                'alignment_score': 0,
+                'error': str(e),
+                'recommendation': 'Unable to analyze content alignment'
+            }
+    
+    def _get_alignment_recommendation(self, score: float) -> str:
+        """Generate recommendation based on content alignment"""
+        if score > 0.7:
+            return "High content overlap - strong candidate for consolidation"
+        elif score > 0.4:
+            return "Moderate overlap - review unique content before consolidating"
+        else:
+            return "Low content overlap - pages serve different purposes"
