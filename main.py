@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 from io import BytesIO
 import time
 
+# Import the column mapper
+from column_mapper import normalize_column_names, validate_required_columns
+
 # Since you have helpers.py at root level, we can import directly from it
 import helpers
 
@@ -31,27 +34,36 @@ if 'analysis_results' not in st.session_state:
 # Custom CSS
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #f8f9fa;
+    .main-header {
+        text-align: center;
+        padding: 2rem 0;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
     }
     .metric-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 10px;
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin: 10px 0;
+        border-left: 4px solid #667eea;
     }
-    .warning-box {
-        background-color: #fff3cd;
-        border-left: 4px solid #ffc107;
-        padding: 10px;
-        margin: 10px 0;
-    }
-    .success-box {
-        background-color: #d4edda;
+    .success-msg {
+        background: #d4edda;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 8px;
         border-left: 4px solid #28a745;
-        padding: 10px;
-        margin: 10px 0;
+        margin: 1rem 0;
+    }
+    .warning-msg {
+        background: #fff3cd;
+        color: #856404;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #ffc107;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -108,36 +120,95 @@ with tab1:
     uploaded_file = st.file_uploader(
         "Upload GSC Export",
         type=['csv'],
-        help="CSV should contain: page, query, clicks, impressions, position"
+        help="CSV should contain: page, query, clicks, impressions, position (column names will be automatically mapped)"
     )
     
     if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.session_state.df = df
-        st.session_state.data_loaded = True
-        st.success(f"✅ Loaded {len(df)} rows of data")
-        
-        # Data preview
-        with st.expander("Preview Data"):
-            st.dataframe(df.head())
+        try:
+            # Load the CSV
+            df = pd.read_csv(uploaded_file)
             
-            # Data quality check
-            required_cols = ['page', 'query', 'clicks', 'impressions', 'position']
-            missing_cols = [col for col in required_cols if col not in df.columns]
+            # Show original column structure
+            st.subheader("Original Data Structure")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Original Columns:**")
+                st.write(df.columns.tolist())
+            with col2:
+                st.write("**Data Shape:**")
+                st.write(f"{df.shape[0]} rows × {df.shape[1]} columns")
             
-            if missing_cols:
-                st.error(f"Missing required columns: {', '.join(missing_cols)}")
-            else:
-                st.success("✅ All required columns present")
+            # Validate and normalize columns
+            is_valid, missing_cols, mappings, df_normalized = validate_required_columns(df, show_mappings=True)
+            
+            if is_valid:
+                st.session_state.df = df_normalized
+                st.session_state.data_loaded = True
+                
+                # Show successful mapping
+                st.markdown('<div class="success-msg">✅ Data loaded successfully! Column mappings applied.</div>', unsafe_allow_html=True)
+                
+                # Display column mappings
+                if mappings:
+                    st.subheader("Column Mappings Applied")
+                    mapping_df = pd.DataFrame([
+                        {"Original Column": original, "Mapped To": mapped}
+                        for original, mapped in mappings.items()
+                    ])
+                    st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                
+                # Data preview
+                with st.expander("Preview Normalized Data"):
+                    st.dataframe(df_normalized.head())
                 
                 # Show basic stats
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Unique Pages", f"{df['page'].nunique():,}")
+                    st.metric("Unique Pages", f"{df_normalized['page'].nunique():,}")
                 with col2:
-                    st.metric("Unique Queries", f"{df['query'].nunique():,}")
+                    st.metric("Unique Queries", f"{df_normalized['query'].nunique():,}")
                 with col3:
-                    st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+                    st.metric("Total Clicks", f"{df_normalized['clicks'].sum():,}")
+                    
+            else:
+                st.error(f"❌ Missing required columns after mapping: {', '.join(missing_cols)}")
+                
+                # Show what columns we found and what we're looking for
+                st.subheader("Column Mapping Diagnostics")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**Available Columns:**")
+                    for col in df.columns:
+                        st.write(f"- {col}")
+                
+                with col2:
+                    st.write("**Required Columns:**")
+                    required_cols = ['page', 'query', 'clicks', 'impressions', 'position']
+                    for col in required_cols:
+                        if col in missing_cols:
+                            st.write(f"- ❌ {col}")
+                        else:
+                            st.write(f"- ✅ {col}")
+                
+                # Show mapping suggestions
+                if mappings:
+                    st.subheader("Partial Mappings Found")
+                    st.write("These columns were successfully mapped:")
+                    for original, mapped in mappings.items():
+                        st.write(f"- {original} → {mapped}")
+                
+                st.markdown("""
+                **Troubleshooting Tips:**
+                1. Ensure your CSV contains data for pages, search queries, clicks, impressions, and position
+                2. Column names can be in various formats (e.g., "Landing Page" for page, "Avg. Pos" for position)
+                3. Check for any typos in column headers
+                4. Make sure numeric columns (clicks, impressions, position) contain valid numbers
+                """)
+                
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+            st.write("Please ensure your CSV file is properly formatted and try again.")
 
 # Tab 2: Analysis
 with tab2:
@@ -204,22 +275,19 @@ with tab2:
                     'qa_data': helpers.create_qa_dataframe(df, final_df)
                 }
                 st.session_state.analysis_complete = True
+                
                 st.success("✅ Analysis complete!")
                 
                 # Show summary metrics
                 col1, col2, col3, col4 = st.columns(4)
-                
                 with col1:
                     st.metric("Total Queries Analyzed", f"{len(df['query'].unique()):,}")
-                
                 with col2:
                     cannibalization_issues = len(final_df['query'].unique())
                     st.metric("Cannibalization Issues", f"{cannibalization_issues:,}")
-                
                 with col3:
                     immediate_opps_df = st.session_state.analysis_results['immediate_opportunities']
                     st.metric("Immediate Opportunities", f"{len(immediate_opps_df['query'].unique()):,}")
-                
                 with col4:
                     pages_to_consolidate = len(final_df['page'].unique())
                     st.metric("Pages to Review", f"{pages_to_consolidate:,}")
@@ -227,7 +295,6 @@ with tab2:
         if st.session_state.analysis_complete:
             # Detailed Results
             st.subheader("Cannibalization Issues Detected")
-            
             results_df = st.session_state.analysis_results['all_opportunities']
             
             # Add filters
@@ -238,7 +305,6 @@ with tab2:
                     options=results_df['query'].unique(),
                     default=None
                 )
-            
             with col2:
                 comment_filter = st.selectbox(
                     "Filter by Status",
@@ -273,7 +339,6 @@ with tab3:
         with col1:
             # Cannibalization Distribution
             pages_per_query = results_df.groupby('query')['page'].count().value_counts().sort_index()
-            
             fig_dist = go.Figure(data=[
                 go.Bar(
                     x=[f'{i} Pages' for i in pages_per_query.index],
@@ -292,7 +357,6 @@ with tab3:
         with col2:
             # Opportunity vs Risk Distribution
             comment_counts = results_df['comment'].value_counts()
-            
             fig_pie = go.Figure(data=[go.Pie(
                 labels=comment_counts.index,
                 values=comment_counts.values,
@@ -370,7 +434,6 @@ with tab4:
                         st.markdown("- [ ] Set up 301 redirects")
         else:
             st.info("No immediate consolidation opportunities found. Review the Analysis tab for queries that may need manual review.")
-            
     else:
         st.info("Complete analysis to see recommendations")
 
@@ -411,11 +474,9 @@ with tab5:
             immediate_opps = st.session_state.analysis_results['immediate_opportunities']
             if not immediate_opps.empty:
                 redirect_data = []
-                
                 for query in immediate_opps['query'].unique():
                     query_data = immediate_opps[immediate_opps['query'] == query].sort_values('clicks_query', ascending=False)
                     primary_page = query_data.iloc[0]['page']
-                    
                     for _, page in query_data.iloc[1:].iterrows():
                         redirect_data.append({
                             'url_from': page['page'],
@@ -426,7 +487,6 @@ with tab5:
                 
                 redirect_df = pd.DataFrame(redirect_data)
                 csv = redirect_df.to_csv(index=False)
-                
                 st.download_button(
                     label="🔄 Download Redirect Map (CSV)",
                     data=csv,
@@ -441,7 +501,6 @@ with tab5:
         
         # Preview export data
         st.subheader("Export Preview")
-        
         export_tabs = st.tabs(["All Opportunities", "Immediate Opportunities", "QA Data"])
         
         with export_tabs[0]:
@@ -471,9 +530,9 @@ with tab5:
 st.markdown("---")
 st.markdown(
     """
-    <div style='text-align: center; color: #666;'>
-        SEO Cannibalization Analyzer v2.0 | Built with Streamlit | 
-        <a href="https://github.com/SEOptimize-LLC/seo-cannibalization-analysis" target="_blank">GitHub</a>
+    <div style="text-align: center; color: #666; padding: 2rem;">
+        <p>SEO Cannibalization Analyzer v2.0 | Built with ❤️ for SEO professionals</p>
+        <p>For support and updates, visit our <a href="https://github.com/SEOptimize-LLC/SEO-Cannibalization-Analysis" target="_blank">GitHub repository</a></p>
     </div>
     """,
     unsafe_allow_html=True
