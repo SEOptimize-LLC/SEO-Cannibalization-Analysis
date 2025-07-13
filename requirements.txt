@@ -18,9 +18,3 @@ google-api-python-client==2.118.0
 # Utilities
 python-dotenv==1.0.1
 requests==2.31.0
-
-# Future features (optional - remove if you want minimal dependencies)
-# scikit-learn==1.3.2  # For ML-powered insights
-# beautifulsoup4==4.12.2  # For content analysis
-# lxml==4.9.3  # For HTML parsing
-# validators==0.22.0  # For URL validation
