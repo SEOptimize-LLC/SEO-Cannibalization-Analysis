@@ -1,109 +1,492 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
+from io import BytesIO
+import time
 
-# --- Main application entry point ---
-def main():
-    st.set_page_config(page_title="SEO Cannibalization Analysis", layout="wide")
-    st.title("SEO Cannibalization Analysis")
+# Import helper modules
+from helpers import (
+    remove_brand_queries,
+    calculate_query_page_metrics,
+    filter_queries_by_clicks_and_pages,
+    merge_and_aggregate,
+    calculate_click_percentage,
+    filter_by_click_percentage,
+    merge_with_page_clicks,
+    define_opportunity_levels,
+    sort_and_finalize_output,
+    create_qa_dataframe,
+    immediate_opps
+)
 
-    # Authentication step
-    if "credentials" not in st.session_state:
-        if st.button("Authenticate with Google Search Console"):
-            st.session_state.credentials = authenticate()
-    else:
-        run_analysis_ui()
+# Page configuration
+st.set_page_config(
+    page_title="SEO Cannibalization Analyzer",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- UI for analysis parameters and results ---
-def run_analysis_ui():
-    from datetime import date
+# Initialize session state
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+if 'analysis_complete' not in st.session_state:
+    st.session_state.analysis_complete = False
+if 'df' not in st.session_state:
+    st.session_state.df = None
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = {}
 
-    st.sidebar.header("Data & Settings")
-    start_date = st.sidebar.date_input("Start Date", date.today().replace(day=1))
-    end_date = st.sidebar.date_input("End Date", date.today())
-    threshold = st.sidebar.slider("Cannibalization Threshold", 0.0, 1.0, 0.5)
-
-    if st.sidebar.button("Load & Analyze"):
-        df = load_gsc_data(st.session_state.credentials, start_date, end_date)
-        results = process_cannibalization(df, threshold)
-        st.subheader("Analysis Results")
-        st.dataframe(results, use_container_width=True)
-        fig = plot_results(results)
-        st.plotly_chart(fig, use_container_width=True)
-
-# --- Authentication function (lazy import) ---
-def authenticate():
-    from google_auth_oauthlib.flow import Flow
-    from googleapiclient.discovery import build
-
-    flow = Flow.from_client_secrets_file(
-        "config/client_secrets.json",
-        scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
-        redirect_uri="urn:ietf:wg:oauth:2.0:oob"
-    )
-    auth_url, _ = flow.authorization_url(prompt="consent")
-    st.info(f"Go to this URL to authorize: {auth_url}")
-    code = st.text_input("Enter authorization code")
-    if code:
-        flow.fetch_token(code=code)
-        creds = flow.credentials
-        return creds
-    st.stop()
-
-# --- Cached data loading ---
-@st.cache_data(show_spinner=False)
-def load_gsc_data(credentials, start_date, end_date):
-    import pandas as pd
-    from googleapiclient.discovery import build
-
-    service = build("webmasters", "v3", credentials=credentials)
-    request = {
-        "startDate": start_date.isoformat(),
-        "endDate": end_date.isoformat(),
-        "dimensions": ["page", "query"],
-        "rowLimit": 10000
+# Custom CSS
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #f8f9fa;
     }
-    response = service.searchanalytics().query(
-        siteUrl="https://example.com", body=request
-    ).execute()
-    rows = response.get("rows", [])
-    data = []
-    for r in rows:
-        data.append({
-            "page": r["keys"][0],
-            "query": r["keys"][1],
-            "clicks": r.get("clicks", 0),
-            "impressions": r.get("impressions", 0)
-        })
-    df = pd.DataFrame(data)
-    return df
+    .metric-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 10px 0;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 10px;
+        margin: 10px 0;
+    }
+    .success-box {
+        background-color: #d4edda;
+        border-left: 4px solid #28a745;
+        padding: 10px;
+        margin: 10px 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# --- Cached processing ---
-@st.cache_data
-def process_cannibalization(df, threshold):
-    import pandas as pd
-    import numpy as np
+# Title and description
+st.title("🔍 SEO Cannibalization Analyzer")
+st.markdown("### Advanced Detection & Resolution Tool")
+st.markdown("---")
 
-    pivot = df.pivot_table(index="page", values="impressions", aggfunc="sum").reset_index()
-    pivot["score"] = pivot["impressions"] / pivot["impressions"].max()
-    pivot["cannibalization"] = pivot["score"] >= threshold
-    return pivot.sort_values("score", ascending=False)
-
-# --- Cached plotting ---
-@st.cache_data
-def plot_results(df):
-    import plotly.express as px
-
-    fig = px.bar(
-        df,
-        x="page",
-        y="score",
-        color="cannibalization",
-        labels={
-            "score": "Cannibalization Score",
-            "cannibalization": "Above Threshold"
-        },
-        title="Page-Level Cannibalization Scores"
+# Sidebar Configuration
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    
+    # Threshold Settings
+    st.subheader("Detection Thresholds")
+    click_threshold = st.slider(
+        "Minimum Click % Threshold",
+        min_value=1,
+        max_value=20,
+        value=5,
+        help="Pages with click % below this threshold won't be considered for cannibalization"
+    ) / 100
+    
+    min_clicks = st.number_input(
+        "Minimum Total Clicks",
+        min_value=1,
+        value=10,
+        help="Queries with fewer clicks will be excluded"
     )
-    return fig
+    
+    # Brand Terms
+    st.subheader("Brand Exclusions")
+    brand_terms = st.text_area(
+        "Brand Terms (one per line)",
+        help="Enter brand terms to exclude from analysis"
+    )
+    brand_list = [term.strip() for term in brand_terms.split('\n') if term.strip()]
+    
+    # Advanced Options
+    st.subheader("Advanced Analysis")
+    enable_intent_detection = st.checkbox("Enable Intent Mismatch Detection", value=True)
+    enable_serp_analysis = st.checkbox("Enable SERP Feature Analysis", value=True)
+    enable_content_gap = st.checkbox("Enable Content Gap Analysis", value=True)
+    enable_ml_insights = st.checkbox("Enable AI-Powered Insights", value=True)
 
-if __name__ == "__main__":
-    main()
+# Main Content Area
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Data Input", "🔍 Analysis", "📈 Visualizations", "🎯 Recommendations", "📥 Export"])
+
+# Tab 1: Data Input
+with tab1:
+    st.header("Data Source Selection")
+    
+    st.subheader("📁 CSV Upload")
+    uploaded_file = st.file_uploader(
+        "Upload GSC Export",
+        type=['csv'],
+        help="CSV should contain: page, query, clicks, impressions, position"
+    )
+    
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.session_state.df = df
+        st.session_state.data_loaded = True
+        st.success(f"✅ Loaded {len(df)} rows of data")
+        
+        # Data preview
+        with st.expander("Preview Data"):
+            st.dataframe(df.head())
+            
+            # Data quality check
+            required_cols = ['page', 'query', 'clicks', 'impressions', 'position']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            
+            if missing_cols:
+                st.error(f"Missing required columns: {', '.join(missing_cols)}")
+            else:
+                st.success("✅ All required columns present")
+                
+                # Show basic stats
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Unique Pages", f"{df['page'].nunique():,}")
+                with col2:
+                    st.metric("Unique Queries", f"{df['query'].nunique():,}")
+                with col3:
+                    st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+
+# Tab 2: Analysis
+with tab2:
+    st.header("Cannibalization Analysis")
+    
+    if st.session_state.data_loaded:
+        if st.button("Run Analysis", type="primary"):
+            with st.spinner("Analyzing cannibalization patterns..."):
+                df = st.session_state.df
+                progress_bar = st.progress(0)
+                
+                # Step 1: Remove brand queries
+                progress_bar.progress(20)
+                st.text("Filtering brand queries...")
+                non_brand_df = remove_brand_queries(df, brand_list) if brand_list else df
+                
+                # Step 2: Calculate metrics
+                progress_bar.progress(30)
+                st.text("Calculating page-query metrics...")
+                query_page_counts = calculate_query_page_metrics(non_brand_df)
+                
+                # Step 3: Filter queries
+                progress_bar.progress(40)
+                st.text("Filtering queries by criteria...")
+                query_counts = filter_queries_by_clicks_and_pages(query_page_counts)
+                
+                # Step 4: Merge and aggregate
+                progress_bar.progress(50)
+                st.text("Merging and aggregating data...")
+                wip_df = merge_and_aggregate(query_page_counts, query_counts)
+                
+                # Step 5: Calculate percentages
+                progress_bar.progress(60)
+                st.text("Calculating click percentages...")
+                wip_df = calculate_click_percentage(wip_df)
+                
+                # Step 6: Filter by click percentage
+                progress_bar.progress(70)
+                st.text("Filtering by click percentage threshold...")
+                # Update the function to use custom threshold
+                wip_df['clicks_pct_vs_query'] = wip_df.groupby('query')['clicks'].transform(lambda x: x / x.sum())
+                queries_to_keep = wip_df[wip_df['clicks_pct_vs_query'] >= click_threshold].groupby('query').filter(lambda x: len(x) >= 2)['query'].unique()
+                wip_df = wip_df[wip_df['query'].isin(queries_to_keep)]
+                
+                # Step 7: Merge with page clicks
+                progress_bar.progress(80)
+                st.text("Merging with page-level data...")
+                wip_df = merge_with_page_clicks(wip_df, df)
+                
+                # Step 8: Define opportunities
+                progress_bar.progress(90)
+                st.text("Identifying opportunities...")
+                final_df = define_opportunity_levels(wip_df)
+                
+                # Step 9: Sort and finalize
+                progress_bar.progress(100)
+                st.text("Finalizing results...")
+                final_df = sort_and_finalize_output(final_df)
+                
+                # Store results
+                st.session_state.analysis_results = {
+                    'all_opportunities': final_df,
+                    'immediate_opportunities': immediate_opps(final_df),
+                    'qa_data': create_qa_dataframe(df, final_df)
+                }
+                st.session_state.analysis_complete = True
+                st.success("✅ Analysis complete!")
+                
+                # Show summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Queries Analyzed", f"{len(df['query'].unique()):,}")
+                
+                with col2:
+                    cannibalization_issues = len(final_df['query'].unique())
+                    st.metric("Cannibalization Issues", f"{cannibalization_issues:,}")
+                
+                with col3:
+                    immediate_opps_df = st.session_state.analysis_results['immediate_opportunities']
+                    st.metric("Immediate Opportunities", f"{len(immediate_opps_df['query'].unique()):,}")
+                
+                with col4:
+                    pages_to_consolidate = len(final_df['page'].unique())
+                    st.metric("Pages to Review", f"{pages_to_consolidate:,}")
+        
+        if st.session_state.analysis_complete:
+            # Detailed Results
+            st.subheader("Cannibalization Issues Detected")
+            
+            results_df = st.session_state.analysis_results['all_opportunities']
+            
+            # Add filters
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_queries = st.multiselect(
+                    "Filter by Query",
+                    options=results_df['query'].unique(),
+                    default=None
+                )
+            
+            with col2:
+                comment_filter = st.selectbox(
+                    "Filter by Status",
+                    options=['All', 'Potential Opportunity', 'Risk'],
+                    index=0
+                )
+            
+            # Apply filters
+            filtered_df = results_df.copy()
+            if selected_queries:
+                filtered_df = filtered_df[filtered_df['query'].isin(selected_queries)]
+            if comment_filter != 'All':
+                filtered_df = filtered_df[filtered_df['comment'].str.contains(comment_filter)]
+            
+            st.dataframe(
+                filtered_df,
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        st.info("Please load data in the Data Input tab first")
+
+# Tab 3: Visualizations
+with tab3:
+    st.header("Visual Analysis")
+    
+    if st.session_state.analysis_complete:
+        results_df = st.session_state.analysis_results['all_opportunities']
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Cannibalization Distribution
+            pages_per_query = results_df.groupby('query')['page'].count().value_counts().sort_index()
+            
+            fig_dist = go.Figure(data=[
+                go.Bar(
+                    x=[f'{i} Pages' for i in pages_per_query.index],
+                    y=pages_per_query.values,
+                    marker_color=['#28a745' if i == 2 else '#ffc107' if i == 3 else '#dc3545' for i in pages_per_query.index]
+                )
+            ])
+            fig_dist.update_layout(
+                title="Cannibalization Distribution",
+                xaxis_title="Number of Competing Pages",
+                yaxis_title="Number of Queries",
+                height=400
+            )
+            st.plotly_chart(fig_dist, use_container_width=True)
+        
+        with col2:
+            # Opportunity vs Risk Distribution
+            comment_counts = results_df['comment'].value_counts()
+            
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=comment_counts.index,
+                values=comment_counts.values,
+                hole=.3,
+                marker_colors=['#28a745' if 'Opportunity' in x else '#dc3545' for x in comment_counts.index]
+            )])
+            fig_pie.update_layout(
+                title="Opportunity vs Risk Distribution",
+                height=400
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        
+        # Click Distribution Analysis
+        st.subheader("Click Distribution Analysis")
+        
+        # Get top 10 queries by total clicks
+        top_queries = results_df.groupby('query')['clicks_query'].sum().nlargest(10).index
+        top_queries_data = results_df[results_df['query'].isin(top_queries)]
+        
+        fig_clicks = px.bar(
+            top_queries_data,
+            x='query',
+            y='clicks_query',
+            color='page',
+            title="Click Distribution for Top 10 Cannibalized Queries",
+            labels={'clicks_query': 'Clicks', 'query': 'Query'}
+        )
+        fig_clicks.update_layout(height=500)
+        st.plotly_chart(fig_clicks, use_container_width=True)
+        
+    else:
+        st.info("Run analysis first to see visualizations")
+
+# Tab 4: Recommendations
+with tab4:
+    st.header("Consolidation Recommendations")
+    
+    if st.session_state.analysis_complete:
+        immediate_opps_df = st.session_state.analysis_results['immediate_opportunities']
+        
+        if not immediate_opps_df.empty:
+            st.subheader("🎯 High Priority Consolidation Opportunities")
+            st.markdown("These queries have 2+ pages marked as 'Potential Opportunity'")
+            
+            # Group by query and show recommendations
+            for query in immediate_opps_df['query'].unique():
+                with st.expander(f"Query: {query}"):
+                    query_data = immediate_opps_df[immediate_opps_df['query'] == query].sort_values('clicks_query', ascending=False)
+                    
+                    # Primary page recommendation
+                    primary_page = query_data.iloc[0]
+                    st.markdown("**Recommended Primary Page:**")
+                    st.info(f"🏆 {primary_page['page']}")
+                    st.markdown(f"- Current Clicks: {primary_page['clicks_query']:,}")
+                    st.markdown(f"- Average Position: {primary_page['avg_position']:.1f}")
+                    
+                    # Pages to redirect
+                    st.markdown("**Pages to Redirect (301):**")
+                    for _, page in query_data.iloc[1:].iterrows():
+                        st.warning(f"↪️ {page['page']}")
+                        st.markdown(f"  - Clicks to recover: {page['clicks_query']:,}")
+                    
+                    # Estimated impact
+                    total_clicks = query_data['clicks_query'].sum()
+                    recovery_estimate = (total_clicks - primary_page['clicks_query']) * 0.7
+                    st.success(f"**Estimated Traffic Recovery:** +{int(recovery_estimate):,} clicks/month")
+                    
+                    # Content recommendations
+                    if enable_content_gap:
+                        st.markdown("**Content Preservation Checklist:**")
+                        st.markdown("- [ ] Review unique content elements from each page")
+                        st.markdown("- [ ] Merge valuable sections into primary page")
+                        st.markdown("- [ ] Update meta title/description")
+                        st.markdown("- [ ] Consolidate internal links")
+                        st.markdown("- [ ] Set up 301 redirects")
+        else:
+            st.info("No immediate consolidation opportunities found. Review the Analysis tab for queries that may need manual review.")
+            
+    else:
+        st.info("Complete analysis to see recommendations")
+
+# Tab 5: Export
+with tab5:
+    st.header("Export Results")
+    
+    if st.session_state.analysis_complete:
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Excel export
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                # All opportunities
+                st.session_state.analysis_results['all_opportunities'].to_excel(
+                    writer, sheet_name='all_potential_opps', index=False
+                )
+                # Immediate opportunities
+                st.session_state.analysis_results['immediate_opportunities'].to_excel(
+                    writer, sheet_name='high_likelihood_opps', index=False
+                )
+                # QA data
+                st.session_state.analysis_results['qa_data'].to_excel(
+                    writer, sheet_name='risk_qa_data', index=False
+                )
+            
+            buffer.seek(0)
+            st.download_button(
+                label="📊 Download Full Report (Excel)",
+                data=buffer,
+                file_name=f"seo_cannibalization_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        
+        with col2:
+            # CSV export for redirect map
+            immediate_opps = st.session_state.analysis_results['immediate_opportunities']
+            if not immediate_opps.empty:
+                redirect_data = []
+                
+                for query in immediate_opps['query'].unique():
+                    query_data = immediate_opps[immediate_opps['query'] == query].sort_values('clicks_query', ascending=False)
+                    primary_page = query_data.iloc[0]['page']
+                    
+                    for _, page in query_data.iloc[1:].iterrows():
+                        redirect_data.append({
+                            'url_from': page['page'],
+                            'url_to': primary_page,
+                            'query': query,
+                            'clicks_to_recover': page['clicks_query']
+                        })
+                
+                redirect_df = pd.DataFrame(redirect_data)
+                csv = redirect_df.to_csv(index=False)
+                
+                st.download_button(
+                    label="🔄 Download Redirect Map (CSV)",
+                    data=csv,
+                    file_name=f"redirect_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("No redirects to export")
+        
+        with col3:
+            st.info("Integration exports coming soon!")
+        
+        # Preview export data
+        st.subheader("Export Preview")
+        
+        export_tabs = st.tabs(["All Opportunities", "Immediate Opportunities", "QA Data"])
+        
+        with export_tabs[0]:
+            st.dataframe(
+                st.session_state.analysis_results['all_opportunities'].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        with export_tabs[1]:
+            st.dataframe(
+                st.session_state.analysis_results['immediate_opportunities'].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        with export_tabs[2]:
+            st.dataframe(
+                st.session_state.analysis_results['qa_data'].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        st.info("Complete analysis to enable exports")
+
+# Footer
+st.markdown("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: #666;'>
+        SEO Cannibalization Analyzer v2.0 | Built with Streamlit | 
+        <a href="https://github.com/SEOptimize-LLC/seo_cannibalization_analysis" target="_blank">GitHub</a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
