@@ -1,110 +1,120 @@
-import pandas as pd
+"""
+column_mapper.py
+----------------
+Utility functions to normalise Google Search Console exports for the
+SEO Cannibalization Analyzer.
+
+Key Features
+============
+1. Robust header mapping:
+   - Handles case, pluralisation, common synonyms (“Landing Page” → page,
+     “Avg. Pos” → position, etc.).
+2. Numeric coercion:
+   - Guarantees clicks, impressions, and position arrive as numeric dtypes.
+3. Minimal public surface:
+   - `validate_and_clean(df)` is the canonical entry-point used by main.py.
+
+© 2025 SEOptimize LLC – MIT License
+"""
+from __future__ import annotations
+
 import re
+from typing import Dict, List, Tuple
 
-def normalize_column_names(df):
-    """
-    Normalize column names to match expected format: page, query, clicks, impressions, position
-    Handles various naming conventions including case variations, plural/singular, and different wording
-    
-    Args:
-        df (pd.DataFrame): Input DataFrame with potentially varied column names
-        
-    Returns:
-        tuple: (normalized_df, mapping_dict) - DataFrame with normalized columns and applied mappings
-    """
-    
-    # Define mapping patterns for each expected column
-    column_mappings = {
-        'page': [
-            'page', 'pages', 'url', 'urls', 'landing page', 'landing pages', 
-            'landingpage', 'landingpages', 'page_url', 'page url', 'pageurl',
-            'destination', 'destinations', 'link', 'links', 'webpage', 'webpages',
-            'site', 'sites', 'page_path', 'pagepath', 'path'
-        ],
-        'query': [
-            'query', 'queries', 'keyword', 'keywords', 'search term', 'search terms',
-            'searchterm', 'searchterms', 'search query', 'search queries',
-            'searchquery', 'searchqueries', 'term', 'terms', 'phrase', 'phrases',
-            'search_query', 'search_term', 'top_queries', 'top queries'
-        ],
-        'clicks': [
-            'clicks', 'click', 'total clicks', 'totalclicks', 'click count',
-            'clickcount', 'click_count', 'ctr clicks', 'ctrclicks', 'total_clicks'
-        ],
-        'impressions': [
-            'impressions', 'impression', 'total impressions', 'totalimpressions',
-            'impression count', 'impressioncount', 'impression_count',
-            'views', 'view', 'total views', 'totalviews', 'total_impressions'
-        ],
-        'position': [
-            'position', 'positions', 'avg position', 'avgposition', 'avg_position',
-            'average position', 'averageposition', 'average_position',
-            'avg. position', 'avg. pos', 'avg pos', 'avgpos', 'avg.pos',
-            'rank', 'ranking', 'rankings', 'avg rank', 'avgrank', 'avg_rank',
-            'average rank', 'averagerank', 'average_rank', 'avg_ranking'
-        ]
-    }
-    
-    # Create a normalized copy of the dataframe
-    df_normalized = df.copy()
-    
-    # Get current column names (normalized to lowercase for comparison)
-    current_columns = [col.lower().strip() for col in df.columns]
-    
-    # Track which columns were mapped
-    mapped_columns = {}
-    
-    # For each expected column, find the best match
-    for expected_col, variations in column_mappings.items():
-        # Normalize variations to lowercase
-        normalized_variations = [var.lower().strip() for var in variations]
-        
-        # Find exact match first
-        for i, current_col in enumerate(current_columns):
-            if current_col in normalized_variations:
-                original_col_name = df.columns[i]
-                mapped_columns[original_col_name] = expected_col
-                break
-        
-        # If no exact match found, try partial matches
-        if expected_col not in mapped_columns.values():
-            for i, current_col in enumerate(current_columns):
-                for variation in normalized_variations:
-                    # Check if variation is contained in current column or vice versa
-                    if (variation in current_col or current_col in variation) and len(variation) > 2:
-                        original_col_name = df.columns[i]
-                        mapped_columns[original_col_name] = expected_col
-                        break
-                if expected_col in mapped_columns.values():
-                    break
-    
-    # Rename columns using the mapping
-    df_normalized.rename(columns=mapped_columns, inplace=True)
-    
-    return df_normalized, mapped_columns
+import pandas as pd
 
-def validate_required_columns(df, show_mappings=False):
+
+# --------------------------------------------------------------------------- #
+# Internal helpers
+# --------------------------------------------------------------------------- #
+_HEADER_ALIASES: Dict[str, List[str]] = {
+    "page": [
+        "page", "pages", "url", "urls", "landing page", "landing pages",
+        "landingpage", "landingpages", "page_url", "page url", "pageurl",
+        "destination", "destinations", "link", "links", "webpage", "webpages",
+        "site", "sites", "page_path", "pagepath", "path",
+    ],
+    "query": [
+        "query", "queries", "keyword", "keywords", "search term", "search terms",
+        "searchterm", "searchterms", "search query", "search queries",
+        "searchquery", "searchqueries", "term", "terms", "phrase", "phrases",
+        "top_queries", "top queries",
+    ],
+    "clicks": [
+        "clicks", "click", "total clicks", "totalclicks", "click count",
+        "clickcount", "click_count", "ctr clicks", "ctrclicks", "total_clicks",
+    ],
+    "impressions": [
+        "impressions", "impression", "total impressions", "totalimpressions",
+        "impression count", "impressioncount", "impression_count",
+        "views", "view", "total views", "totalviews", "total_impressions",
+    ],
+    "position": [
+        "position", "positions", "avg position", "avgposition", "avg_position",
+        "average position", "averageposition", "average_position",
+        "avg. position", "avg. pos", "avg pos", "avgpos", "avg.pos",
+        "rank", "ranking", "rankings", "avg rank", "avgrank", "avg_rank",
+        "average rank", "averagerank", "average_rank", "avg_ranking",
+    ],
+}
+
+
+def _normalise(text: str) -> str:
+    """Lower-case, strip punctuation/whitespace, collapse runs of spaces."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s\.]", " ", text.lower())).strip()
+
+
+def _build_lookup() -> Dict[str, str]:
+    """Create reverse lookup table alias → canonical header."""
+    alias_map: Dict[str, str] = {}
+    for canonical, variants in _HEADER_ALIASES.items():
+        for alias in variants:
+            alias_map[_normalise(alias)] = canonical
+    return alias_map
+
+
+_ALIAS_LOOKUP: Dict[str, str] = _build_lookup()
+
+
+# --------------------------------------------------------------------------- #
+# Public API
+# --------------------------------------------------------------------------- #
+def validate_and_clean(
+    df: pd.DataFrame,
+) -> Tuple[pd.DataFrame, Dict[str, str], List[str]]:
     """
-    Validate that all required columns are present after normalization
-    
-    Args:
-        df (pd.DataFrame): DataFrame to validate
-        show_mappings (bool): Whether to return mapping information
-        
-    Returns:
-        tuple: (is_valid, missing_columns, mapped_columns_info)
+    Normalise headers and coerce numeric columns.
+
+    Returns
+    -------
+    cleaned_df : pd.DataFrame
+        DataFrame with canonical column names.
+    mapping    : Dict[str, str]
+        {original_header → canonical_header}
+    missing    : List[str]
+        Any of the five required headers still missing after mapping.
     """
-    required_cols = ['page', 'query', 'clicks', 'impressions', 'position']
-    
-    # Normalize column names
-    df_normalized, mappings = normalize_column_names(df)
-    
-    # Check for missing columns
-    missing_cols = [col for col in required_cols if col not in df_normalized.columns]
-    
-    is_valid = len(missing_cols) == 0
-    
-    if show_mappings:
-        return is_valid, missing_cols, mappings, df_normalized
-    else:
-        return is_valid, missing_cols, df_normalized
+    original_cols = list(df.columns)
+    mapping: Dict[str, str] = {}
+
+    # ---- 1. Header mapping ------------------------------------------------- #
+    renamed = {}
+    for col in original_cols:
+        key = _normalise(col)
+        canonical = _ALIAS_LOOKUP.get(key)
+        if canonical and canonical not in renamed.values():
+            renamed[col] = canonical
+            mapping[col] = canonical
+    df = df.rename(columns=renamed)
+
+    # ---- 2. Numeric coercion ---------------------------------------------- #
+    numeric_cols = ["clicks", "impressions", "position"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # ---- 3. Final validation ---------------------------------------------- #
+    required = set(_HEADER_ALIASES.keys())
+    missing = [col for col in required if col not in df.columns]
+
+    return df, mapping, missing
