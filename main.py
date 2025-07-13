@@ -7,20 +7,8 @@ import plotly.graph_objects as go
 from io import BytesIO
 import time
 
-# Import helper modules
-from helpers import (
-    remove_brand_queries,
-    calculate_query_page_metrics,
-    filter_queries_by_clicks_and_pages,
-    merge_and_aggregate,
-    calculate_click_percentage,
-    filter_by_click_percentage,
-    merge_with_page_clicks,
-    define_opportunity_levels,
-    sort_and_finalize_output,
-    create_qa_dataframe,
-    immediate_opps
-)
+# Since you have helpers.py at root level, we can import directly from it
+import helpers
 
 # Page configuration
 st.set_page_config(
@@ -164,56 +152,56 @@ with tab2:
                 # Step 1: Remove brand queries
                 progress_bar.progress(20)
                 st.text("Filtering brand queries...")
-                non_brand_df = remove_brand_queries(df, brand_list) if brand_list else df
+                non_brand_df = helpers.remove_brand_queries(df, brand_list) if brand_list else df
                 
                 # Step 2: Calculate metrics
                 progress_bar.progress(30)
                 st.text("Calculating page-query metrics...")
-                query_page_counts = calculate_query_page_metrics(non_brand_df)
+                query_page_counts = helpers.calculate_query_page_metrics(non_brand_df)
                 
                 # Step 3: Filter queries
                 progress_bar.progress(40)
                 st.text("Filtering queries by criteria...")
-                query_counts = filter_queries_by_clicks_and_pages(query_page_counts)
+                query_counts = helpers.filter_queries_by_clicks_and_pages(query_page_counts)
                 
                 # Step 4: Merge and aggregate
                 progress_bar.progress(50)
                 st.text("Merging and aggregating data...")
-                wip_df = merge_and_aggregate(query_page_counts, query_counts)
+                wip_df = helpers.merge_and_aggregate(query_page_counts, query_counts)
                 
                 # Step 5: Calculate percentages
                 progress_bar.progress(60)
                 st.text("Calculating click percentages...")
-                wip_df = calculate_click_percentage(wip_df)
+                wip_df = helpers.calculate_click_percentage(wip_df)
                 
                 # Step 6: Filter by click percentage
                 progress_bar.progress(70)
                 st.text("Filtering by click percentage threshold...")
                 # Update the function to use custom threshold
-                wip_df['clicks_pct_vs_query'] = wip_df.groupby('query')['clicks'].transform(lambda x: x / x.sum())
+                wip_df['clicks_pct_vs_query'] = wip_df.groupby('query')['clicks'].transform(lambda x: x / x.sum() if x.sum() > 0 else 0)
                 queries_to_keep = wip_df[wip_df['clicks_pct_vs_query'] >= click_threshold].groupby('query').filter(lambda x: len(x) >= 2)['query'].unique()
                 wip_df = wip_df[wip_df['query'].isin(queries_to_keep)]
                 
                 # Step 7: Merge with page clicks
                 progress_bar.progress(80)
                 st.text("Merging with page-level data...")
-                wip_df = merge_with_page_clicks(wip_df, df)
+                wip_df = helpers.merge_with_page_clicks(wip_df, df)
                 
                 # Step 8: Define opportunities
                 progress_bar.progress(90)
                 st.text("Identifying opportunities...")
-                final_df = define_opportunity_levels(wip_df)
+                final_df = helpers.define_opportunity_levels(wip_df)
                 
                 # Step 9: Sort and finalize
                 progress_bar.progress(100)
                 st.text("Finalizing results...")
-                final_df = sort_and_finalize_output(final_df)
+                final_df = helpers.sort_and_finalize_output(final_df)
                 
                 # Store results
                 st.session_state.analysis_results = {
                     'all_opportunities': final_df,
-                    'immediate_opportunities': immediate_opps(final_df),
-                    'qa_data': create_qa_dataframe(df, final_df)
+                    'immediate_opportunities': helpers.immediate_opps(final_df),
+                    'qa_data': helpers.create_qa_dataframe(df, final_df)
                 }
                 st.session_state.analysis_complete = True
                 st.success("✅ Analysis complete!")
@@ -485,7 +473,7 @@ st.markdown(
     """
     <div style='text-align: center; color: #666;'>
         SEO Cannibalization Analyzer v2.0 | Built with Streamlit | 
-        <a href="https://github.com/SEOptimize-LLC/seo_cannibalization_analysis" target="_blank">GitHub</a>
+        <a href="https://github.com/SEOptimize-LLC/seo-cannibalization-analysis" target="_blank">GitHub</a>
     </div>
     """,
     unsafe_allow_html=True
