@@ -43,8 +43,18 @@ COLUMN_MAPPINGS = {
     'average position': 'position',
     'avg_position': 'position',
     'avg position': 'position',
+    'avg.position': 'position',
+    'avg. position': 'position',
+    'avg_pos': 'position',
+    'avg pos': 'position',
+    'avg.pos': 'position',
+    'avg. pos': 'position',
+    'average_pos': 'position',
+    'average pos': 'position',
     'ranking': 'position',
-    'rank': 'position'
+    'rank': 'position',
+    'avg rank': 'position',
+    'average rank': 'position'
 }
 
 # Required columns for the analysis
