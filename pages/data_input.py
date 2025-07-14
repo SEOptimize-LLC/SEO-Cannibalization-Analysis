@@ -212,18 +212,38 @@ def display_gsc_connection():
     # Check if OAuth is configured
     flow = init_oauth_flow()
     if not flow:
-        st.warning("""
-        ⚠️ Google Search Console API is not configured. To enable direct connection:
+        st.info("""
+        📌 **Direct GSC connection requires API setup.**
         
-        1. Set up a Google Cloud Project and enable the Search Console API
-        2. Create OAuth 2.0 credentials
-        3. Set the following environment variables:
-           - `GOOGLE_CLIENT_ID`
-           - `GOOGLE_CLIENT_SECRET`
-           - `REDIRECT_URI`
+        To enable this feature:
+        1. Set up a Google Cloud Project
+        2. Enable the Search Console API
+        3. Configure OAuth 2.0 credentials
         
-        For now, please use the CSV upload option.
+        **For now, please use the CSV upload option above, which provides the same functionality.**
         """)
+        
+        with st.expander("📖 Detailed Setup Instructions"):
+            st.markdown("""
+            ### Setting up Google Search Console API
+            
+            1. **Create a Google Cloud Project:**
+               - Visit [Google Cloud Console](https://console.cloud.google.com/)
+               - Create a new project
+               - Enable "Google Search Console API"
+            
+            2. **Create OAuth Credentials:**
+               - Go to APIs & Services > Credentials
+               - Create OAuth 2.0 Client ID (Web application)
+               - Add redirect URI: `https://your-app.streamlit.app`
+            
+            3. **Set Environment Variables:**
+               ```
+               GOOGLE_CLIENT_ID = "your-client-id"
+               GOOGLE_CLIENT_SECRET = "your-secret"
+               REDIRECT_URI = "your-redirect-uri"
+               ```
+            """)
         return
     
     # Check if already authenticated
