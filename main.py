@@ -462,7 +462,7 @@ def main():
                     st.metric("Total Clicks", f"{df['clicks'].sum():,}")
                 
                 # Check if we have data
-                if df is not None and len(df) > 0:
+            if df is not None and len(df) > 0:
                 
                 # Sample data
                 st.markdown("#### Sample Data")
