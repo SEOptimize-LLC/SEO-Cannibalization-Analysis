@@ -379,7 +379,7 @@ def main():
                 brand_input = st.text_area(
                     "Brand variants",
                     value="\n".join(st.session_state.brand_variants),
-                    height=100,
+                    height=70,  # Reduced from 100 to ~30% smaller
                     help="One per line"
                 )
                 
