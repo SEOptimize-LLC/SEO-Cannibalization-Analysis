@@ -1,120 +1,189 @@
 """
-column_mapper.py
-----------------
-Utility functions to normalise Google Search Console exports for the
-SEO Cannibalization Analyzer.
-
-Key Features
-============
-1. Robust header mapping:
-   - Handles case, pluralisation, common synonyms (“Landing Page” → page,
-     “Avg. Pos” → position, etc.).
-2. Numeric coercion:
-   - Guarantees clicks, impressions, and position arrive as numeric dtypes.
-3. Minimal public surface:
-   - `validate_and_clean(df)` is the canonical entry-point used by main.py.
-
-© 2025 SEOptimize LLC – MIT License
+Column mapping utilities for SEO Cannibalization Analysis
+Handles column normalization and validation for Google Search Console data
 """
-from __future__ import annotations
-
-import re
-from typing import Dict, List, Tuple
 
 import pandas as pd
+from typing import List, Dict, Tuple
 
-
-# --------------------------------------------------------------------------- #
-# Internal helpers
-# --------------------------------------------------------------------------- #
-_HEADER_ALIASES: Dict[str, List[str]] = {
-    "page": [
-        "page", "pages", "url", "urls", "landing page", "landing pages",
-        "landingpage", "landingpages", "page_url", "page url", "pageurl",
-        "destination", "destinations", "link", "links", "webpage", "webpages",
-        "site", "sites", "page_path", "pagepath", "path",
-    ],
-    "query": [
-        "query", "queries", "keyword", "keywords", "search term", "search terms",
-        "searchterm", "searchterms", "search query", "search queries",
-        "searchquery", "searchqueries", "term", "terms", "phrase", "phrases",
-        "top_queries", "top queries",
-    ],
-    "clicks": [
-        "clicks", "click", "total clicks", "totalclicks", "click count",
-        "clickcount", "click_count", "ctr clicks", "ctrclicks", "total_clicks",
-    ],
-    "impressions": [
-        "impressions", "impression", "total impressions", "totalimpressions",
-        "impression count", "impressioncount", "impression_count",
-        "views", "view", "total views", "totalviews", "total_impressions",
-    ],
-    "position": [
-        "position", "positions", "avg position", "avgposition", "avg_position",
-        "average position", "averageposition", "average_position",
-        "avg. position", "avg. pos", "avg pos", "avgpos", "avg.pos",
-        "rank", "ranking", "rankings", "avg rank", "avgrank", "avg_rank",
-        "average rank", "averagerank", "average_rank", "avg_ranking",
-    ],
+# Standard column mappings for Google Search Console data
+COLUMN_MAPPINGS = {
+    # Page/URL variations
+    'page': 'page',
+    'url': 'page',
+    'landing_page': 'page',
+    'landing page': 'page',
+    'pages': 'page',
+    
+    # Query/Keyword variations
+    'query': 'query',
+    'keyword': 'query',
+    'search_query': 'query',
+    'search query': 'query',
+    'search_term': 'query',
+    'search term': 'query',
+    'queries': 'query',
+    'keywords': 'query',
+    
+    # Clicks variations
+    'clicks': 'clicks',
+    'click': 'clicks',
+    'total_clicks': 'clicks',
+    'total clicks': 'clicks',
+    
+    # Impressions variations
+    'impressions': 'impressions',
+    'impression': 'impressions',
+    'total_impressions': 'impressions',
+    'total impressions': 'impressions',
+    
+    # Position variations
+    'position': 'position',
+    'average_position': 'position',
+    'average position': 'position',
+    'avg_position': 'position',
+    'avg position': 'position',
+    'ranking': 'position',
+    'rank': 'position'
 }
 
-
-def _normalise(text: str) -> str:
-    """Lower-case, strip punctuation/whitespace, collapse runs of spaces."""
-    return re.sub(r"\s+", " ", re.sub(r"[^\w\s\.]", " ", text.lower())).strip()
+# Required columns for the analysis
+REQUIRED_COLUMNS = ['page', 'query', 'clicks', 'impressions', 'position']
 
 
-def _build_lookup() -> Dict[str, str]:
-    """Create reverse lookup table alias → canonical header."""
-    alias_map: Dict[str, str] = {}
-    for canonical, variants in _HEADER_ALIASES.items():
-        for alias in variants:
-            alias_map[_normalise(alias)] = canonical
-    return alias_map
-
-
-_ALIAS_LOOKUP: Dict[str, str] = _build_lookup()
-
-
-# --------------------------------------------------------------------------- #
-# Public API
-# --------------------------------------------------------------------------- #
-def validate_and_clean(
-    df: pd.DataFrame,
-) -> Tuple[pd.DataFrame, Dict[str, str], List[str]]:
+def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalise headers and coerce numeric columns.
-
-    Returns
-    -------
-    cleaned_df : pd.DataFrame
-        DataFrame with canonical column names.
-    mapping    : Dict[str, str]
-        {original_header → canonical_header}
-    missing    : List[str]
-        Any of the five required headers still missing after mapping.
+    Normalize column names to standard format.
+    
+    Args:
+        df: DataFrame with potentially varied column names
+        
+    Returns:
+        DataFrame with standardized column names
     """
-    original_cols = list(df.columns)
-    mapping: Dict[str, str] = {}
+    # Create a copy to avoid modifying the original
+    df_normalized = df.copy()
+    
+    # Convert all column names to lowercase for matching
+    current_columns = {col: col.lower().strip() for col in df_normalized.columns}
+    
+    # Map columns to standard names
+    rename_dict = {}
+    for original_col, lower_col in current_columns.items():
+        if lower_col in COLUMN_MAPPINGS:
+            standard_name = COLUMN_MAPPINGS[lower_col]
+            if standard_name != original_col:
+                rename_dict[original_col] = standard_name
+    
+    # Rename columns
+    if rename_dict:
+        df_normalized = df_normalized.rename(columns=rename_dict)
+    
+    return df_normalized
 
-    # ---- 1. Header mapping ------------------------------------------------- #
-    renamed = {}
-    for col in original_cols:
-        key = _normalise(col)
-        canonical = _ALIAS_LOOKUP.get(key)
-        if canonical and canonical not in renamed.values():
-            renamed[col] = canonical
-            mapping[col] = canonical
-    df = df.rename(columns=renamed)
 
-    # ---- 2. Numeric coercion ---------------------------------------------- #
-    numeric_cols = ["clicks", "impressions", "position"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+def validate_required_columns(df: pd.DataFrame) -> Tuple[bool, List[str]]:
+    """
+    Validate that all required columns are present in the DataFrame.
+    
+    Args:
+        df: DataFrame to validate
+        
+    Returns:
+        Tuple of (is_valid, missing_columns)
+    """
+    missing_columns = []
+    
+    for required_col in REQUIRED_COLUMNS:
+        if required_col not in df.columns:
+            missing_columns.append(required_col)
+    
+    is_valid = len(missing_columns) == 0
+    
+    return is_valid, missing_columns
 
-    # ---- 3. Final validation ---------------------------------------------- #
-    required = set(_HEADER_ALIASES.keys())
-    missing = [col for col in required if col not in df.columns]
 
-    return df, mapping, missing
+def get_column_mapping_report(df: pd.DataFrame) -> Dict[str, any]:
+    """
+    Generate a report about column mapping and validation.
+    
+    Args:
+        df: Original DataFrame
+        
+    Returns:
+        Dictionary containing mapping details
+    """
+    original_columns = list(df.columns)
+    normalized_df = normalize_column_names(df)
+    normalized_columns = list(normalized_df.columns)
+    
+    is_valid, missing_columns = validate_required_columns(normalized_df)
+    
+    # Identify which columns were mapped
+    mapped_columns = {}
+    for orig, norm in zip(original_columns, normalized_columns):
+        if orig != norm:
+            mapped_columns[orig] = norm
+    
+    # Identify unmapped columns
+    unmapped_columns = [col for col in normalized_columns 
+                       if col not in REQUIRED_COLUMNS]
+    
+    report = {
+        'original_columns': original_columns,
+        'normalized_columns': normalized_columns,
+        'mapped_columns': mapped_columns,
+        'unmapped_columns': unmapped_columns,
+        'missing_required_columns': missing_columns,
+        'is_valid': is_valid,
+        'validation_message': 'All required columns present' if is_valid 
+                            else f'Missing required columns: {", ".join(missing_columns)}'
+    }
+    
+    return report
+
+
+def prepare_gsc_data(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    """
+    Prepare Google Search Console data for analysis.
+    
+    Args:
+        df: Raw DataFrame from GSC export
+        verbose: Whether to print validation messages
+        
+    Returns:
+        Normalized DataFrame ready for analysis
+        
+    Raises:
+        ValueError: If required columns are missing
+    """
+    # Normalize column names
+    df_normalized = normalize_column_names(df)
+    
+    # Validate required columns
+    is_valid, missing_columns = validate_required_columns(df_normalized)
+    
+    if not is_valid:
+        error_msg = f"Missing required columns: {', '.join(missing_columns)}\n"
+        error_msg += f"Available columns: {', '.join(df_normalized.columns)}\n"
+        error_msg += "Please ensure your CSV has columns for: page/url, query/keyword, clicks, impressions, and position"
+        raise ValueError(error_msg)
+    
+    if verbose:
+        print("✓ Column validation successful")
+        print(f"  - Found {len(df_normalized)} rows")
+        print(f"  - Columns: {', '.join(df_normalized.columns)}")
+    
+    # Ensure numeric columns are properly typed
+    numeric_columns = ['clicks', 'impressions', 'position']
+    for col in numeric_columns:
+        df_normalized[col] = pd.to_numeric(df_normalized[col], errors='coerce')
+    
+    # Remove rows with invalid numeric values
+    initial_rows = len(df_normalized)
+    df_normalized = df_normalized.dropna(subset=numeric_columns)
+    
+    if verbose and initial_rows != len(df_normalized):
+        print(f"  - Removed {initial_rows - len(df_normalized)} rows with invalid numeric values")
+    
+    return df_normalized
