@@ -262,8 +262,15 @@ def display_gsc_connection():
             prompt='select_account'
         )
         
-        st.markdown(f"""
-        <a href="{auth_url}" target="_self">
+        st.markdown("""
+        To connect to Google Search Console, click the button below. 
+        
+        **Note:** This will open in a new tab to comply with Google's security requirements.
+        """)
+        
+        # Use a link that opens in a new tab instead of iframe
+        st.markdown(f'''
+        <a href="{auth_url}" target="_blank">
             <button style="
                 background-color: #4285F4;
                 color: white;
@@ -272,11 +279,50 @@ def display_gsc_connection():
                 border-radius: 5px;
                 cursor: pointer;
                 font-size: 16px;
+                margin-top: 10px;
             ">
                 🔐 Connect to Google Search Console
             </button>
         </a>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
+        
+        # Add instructions for users
+        st.info("""
+        **After authentication:**
+        1. Complete the Google sign-in process in the new tab
+        2. You'll be redirected back to this app
+        3. If the redirect doesn't work, copy the URL from the browser and paste it here:
+        """)
+        
+        # Manual URL input as fallback
+        auth_response_url = st.text_input("Paste the redirect URL here (if needed):", key="auth_url_input")
+        
+        if auth_response_url and 'code=' in auth_response_url:
+            try:
+                # Extract the code from the URL
+                import urllib.parse
+                parsed_url = urllib.parse.urlparse(auth_response_url)
+                code = urllib.parse.parse_qs(parsed_url.query).get('code', [None])[0]
+                
+                if code:
+                    # Process the code
+                    flow.fetch_token(code=code)
+                    credentials = flow.credentials
+                    
+                    # Store credentials in session state
+                    st.session_state['gsc_credentials'] = {
+                        'token': credentials.token,
+                        'refresh_token': credentials.refresh_token,
+                        'token_uri': credentials.token_uri,
+                        'client_id': credentials.client_id,
+                        'client_secret': credentials.client_secret,
+                        'scopes': credentials.scopes
+                    }
+                    
+                    st.success("✅ Successfully connected to Google Search Console!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error processing authentication: {str(e)}")
 
 def display_authenticated_interface():
     """Display interface for authenticated users"""
