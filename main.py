@@ -121,6 +121,9 @@ def clean_gsc_data(df):
     # Filter out branded queries
     mask = ~df['query'].str.lower().str.contains(brand_pattern, na=False)
     filtered_df = df[mask].copy()
+
+    # Remove columns where every value is None or NaN
+    df = df.dropna(axis=1, how='all')
     
     return filtered_df
 
