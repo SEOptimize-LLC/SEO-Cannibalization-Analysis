@@ -1,4 +1,6 @@
-""" SEO Cannibalization Analysis Tool Streamlined single-page application for keyword cannibalization detection """ 
+""" SEO Cannibalization Analysis Tool
+Streamlined single-page application for keyword cannibalization detection
+""" 
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from column_mapper import normalize_column_names, validate_required_columns, prepare_gsc_data
+from helpers import remove_brand_queries
 
 # Page configuration
 st.set_page_config(
@@ -62,18 +65,6 @@ def clean_gsc_data(df):
         'removed_invalid_numbers': 0,
         'removed_empty': 0
     }
-
-    def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
-   
-        """
-        Remove rows whose query contains any of the given brand name variants.
-        """
-    
-        if not variants:
-            return df
-        pattern = "|".join([v.lower() for v in variants])
-        mask = ~df["query"].str.lower().str.contains(pattern, na=False)
-        return df.loc[mask].copy()
     
     # 1. Remove rows with #NAME? errors in query
     name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
@@ -122,22 +113,10 @@ def clean_gsc_data(df):
     cleaning_stats['final_rows'] = len(df)
     cleaning_stats['total_removed'] = total_removed
     
-    return df, cleaning_stats
-    """Remove branded keyword variations from the dataset"""
-    if not brand_variants:
-        return df
-    
-    # Create a regex pattern for brand variants
-    brand_pattern = '|'.join([variant.lower() for variant in brand_variants])
-    
-    # Filter out branded queries
-    mask = ~df['query'].str.lower().str.contains(brand_pattern, na=False)
-    filtered_df = df[mask].copy()
-
     # Remove columns where every value is None or NaN
     df = df.dropna(axis=1, how='all')
     
-    return filtered_df
+    return df, cleaning_stats
 
 def filter_by_multiple_pages(df):
     """Filter to keep only keywords that have multiple pages ranking"""
@@ -275,8 +254,8 @@ def identify_consolidation_opportunities(df, scores_df):
 def run_cannibalization_analysis(df, brand_variants):
     """Main analysis function"""
     
-    # Step 1: Remove branded keywords
-    df_filtered = remove_branded_keywords(df, brand_variants)
+    # Step 1: Remove branded keywords using the correct function from helpers
+    df_filtered = remove_brand_queries(df, brand_variants)
     
     # Step 2: Filter for multiple pages per query
     df_filtered = filter_by_multiple_pages(df_filtered)
