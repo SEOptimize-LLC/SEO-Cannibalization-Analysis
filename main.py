@@ -119,14 +119,16 @@ def clean_gsc_data(df):
     cleaning_stats['removed_pages_subfolder'] = pages_mask.sum()
     df = df[~pages_mask]
     
-    # 5. Remove homepage URLs (with and without trailing slash)
+    # 5. Remove homepage URLs (EXACT homepage only - domain root with optional trailing slash)
     homepage_pattern = r'^https://[^/]+/?$'
     homepage_mask = df['page'].str.contains(homepage_pattern, case=False, na=False)
     cleaning_stats['removed_homepage'] = homepage_mask.sum()
     df = df[~homepage_mask]
     
     # 6. Remove subdomain URLs (anything that's not www or the main domain)
-    subdomain_mask = df['page'].str.contains(r'^https://(?!www\.)[^.]+\.[^/]+/', case=False, na=False)
+    # This specifically excludes subdomains like blog.example.com, shop.example.com
+    # But keeps www.example.com and example.com
+    subdomain_mask = df['page'].str.contains(r'^https://(?!www\.)([^.]+)\.[^/]+/', case=False, na=False)
     cleaning_stats['removed_subdomains'] = subdomain_mask.sum()
     df = df[~subdomain_mask]
     
