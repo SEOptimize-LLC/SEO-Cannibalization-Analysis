@@ -70,6 +70,8 @@ def init_session_state():
         st.session_state.cannibalization_summary = None
     if 'consolidation_recommendations' not in st.session_state:
         st.session_state.consolidation_recommendations = None
+    if 'cleaning_stats' not in st.session_state:
+        st.session_state.cleaning_stats = None
 
 def clean_gsc_data(df):
     """ Clean Google Search Console data by removing invalid entries """
@@ -367,35 +369,9 @@ def main():
                 with st.spinner("🧹 Cleaning data..."):
                     df, cleaning_stats = clean_gsc_data(df)
                 
-                if cleaning_stats['total_removed'] > 0:
-                    st.warning("⚠️ Cleaning Results:")
-                    st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
-                    
-                    if cleaning_stats['removed_with_parameters'] > 0:
-                        st.metric("URLs with Parameters", cleaning_stats['removed_with_parameters'])
-                    if cleaning_stats['removed_pages_subfolder'] > 0:
-                        st.metric("/pages/ URLs", cleaning_stats['removed_pages_subfolder'])
-                    if cleaning_stats['removed_homepage'] > 0:
-                        st.metric("Homepage URLs", cleaning_stats['removed_homepage'])
-                    if cleaning_stats['removed_subdomains'] > 0:
-                        st.metric("Subdomain URLs", cleaning_stats['removed_subdomains'])
-                    
-                    st.success(f"✅ Clean data: {cleaning_stats['final_rows']:,} rows")
-                
-                df = prepare_gsc_data(df, verbose=False)
-                
                 st.session_state['gsc_data'] = df
                 st.session_state['data_loaded'] = True
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Rows", f"{len(df):,}")
-                with col2:
-                    st.metric("Unique Pages", f"{df['page'].nunique():,}")
-                with col3:
-                    st.metric("Unique Queries", f"{df['query'].nunique():,}")
-                with col4:
-                    st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+                st.session_state['cleaning_stats'] = cleaning_stats
                 
                 st.markdown("### 🏷️ Brand Configuration")
                 st.markdown("Enter brand name variations to exclude:")
@@ -439,7 +415,9 @@ def main():
             st.info("👈 Please upload data using the sidebar to begin analysis")
         else:
             df = st.session_state.gsc_data
+            cleaning_stats = st.session_state.cleaning_stats
             
+            # Data overview metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total Rows", f"{len(df):,}")
@@ -449,6 +427,35 @@ def main():
                 st.metric("Unique Queries", f"{df['query'].nunique():,}")
             with col4:
                 st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+            
+            # Cleaning results
+            if cleaning_stats and cleaning_stats['total_removed'] > 0:
+                st.markdown("### 🧹 Cleaning Results")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
+                with col2:
+                    st.metric("URLs with Parameters", cleaning_stats['removed_with_parameters'])
+                with col3:
+                    st.metric("/pages/ URLs", cleaning_stats['removed_pages_subfolder'])
+                with col4:
+                    st.metric("Subdomain URLs", cleaning_stats['removed_subdomains'])
+                
+                # Additional cleaning details
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if cleaning_stats['removed_name_errors'] > 0:
+                        st.metric("#NAME? Errors", cleaning_stats['removed_name_errors'])
+                with col2:
+                    if cleaning_stats['removed_non_urls'] > 0:
+                        st.metric("Invalid URLs", cleaning_stats['removed_non_urls'])
+                with col3:
+                    if cleaning_stats['removed_non_english'] > 0:
+                        st.metric("Non-English", cleaning_stats['removed_non_english'])
+                with col4:
+                    if cleaning_stats['removed_invalid_numbers'] > 0:
+                        st.metric("Invalid Numbers", cleaning_stats['removed_invalid_numbers'])
             
             st.markdown("#### Sample Data")
             st.dataframe(df.head(100), use_container_width=True, height=300)
