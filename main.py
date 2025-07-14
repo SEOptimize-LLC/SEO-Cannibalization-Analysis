@@ -64,9 +64,11 @@ def clean_gsc_data(df):
     }
 
     def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
+   
     """
     Remove rows whose query contains any of the given brand name variants.
     """
+    
     if not variants:
         return df
     pattern = "|".join([v.lower() for v in variants])
