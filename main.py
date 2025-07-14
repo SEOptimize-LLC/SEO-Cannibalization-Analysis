@@ -96,7 +96,70 @@ def init_session_state():
     if 'consolidation_recommendations' not in st.session_state:
         st.session_state.consolidation_recommendations = None
 
-def remove_branded_keywords(df, brand_variants):
+def clean_gsc_data(df):
+    """
+    Clean Google Search Console data by removing invalid entries
+    """
+    initial_rows = len(df)
+    
+    # Track cleaning stats
+    cleaning_stats = {
+        'initial_rows': initial_rows,
+        'removed_name_errors': 0,
+        'removed_non_urls': 0,
+        'removed_non_english': 0,
+        'removed_invalid_numbers': 0,
+        'removed_empty': 0
+    }
+    
+    # 1. Remove rows with #NAME? errors in query
+    name_error_mask = df['query'].astype(str).str.contains('#NAME\?', na=False)
+    cleaning_stats['removed_name_errors'] = name_error_mask.sum()
+    df = df[~name_error_mask]
+    
+    # 2. Remove rows where page doesn't start with https://
+    valid_url_mask = df['page'].astype(str).str.startswith('https://')
+    cleaning_stats['removed_non_urls'] = (~valid_url_mask).sum()
+    df = df[valid_url_mask]
+    
+    # 3. Remove rows with non-English queries (optional - you can comment this out if you want to keep them)
+    # This removes queries with non-ASCII characters
+    english_mask = df['query'].astype(str).apply(lambda x: x.isascii())
+    cleaning_stats['removed_non_english'] = (~english_mask).sum()
+    df = df[english_mask]
+    
+    # 4. Remove rows with empty queries or pages
+    empty_mask = (df['query'].astype(str).str.strip() == '') | (df['page'].astype(str).str.strip() == '')
+    cleaning_stats['removed_empty'] = empty_mask.sum()
+    df = df[~empty_mask]
+    
+    # 5. Ensure numeric columns are actually numeric
+    # Convert clicks, impressions, position to numeric, coercing errors to NaN
+    df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
+    df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
+    df['position'] = pd.to_numeric(df['position'], errors='coerce')
+    
+    # Remove rows with invalid numeric values (NaN in clicks or impressions)
+    # Note: position can be NaN for some queries, so we're more lenient there
+    numeric_mask = df['clicks'].notna() & df['impressions'].notna()
+    cleaning_stats['removed_invalid_numbers'] = (~numeric_mask).sum()
+    df = df[numeric_mask]
+    
+    # 6. Additional cleaning: Remove obvious test/spam queries
+    spam_patterns = ['test', 'asdf', 'xxx', '123', 'lorem ipsum']
+    spam_mask = df['query'].astype(str).str.lower().str.contains('|'.join(spam_patterns), na=False)
+    df = df[~spam_mask]
+    
+    # 7. Remove queries that are just numbers or single characters
+    valid_query_mask = df['query'].astype(str).str.len() > 2
+    df = df[valid_query_mask]
+    
+    # Calculate total removed
+    total_removed = initial_rows - len(df)
+    cleaning_stats['final_rows'] = len(df)
+    cleaning_stats['total_removed'] = total_removed
+    
+    return df, cleaning_stats
     """Remove branded keyword variations from the dataset"""
     if not brand_variants:
         return df
@@ -299,40 +362,125 @@ def main():
         
         if uploaded_file is not None:
             try:
-                # Read the CSV file
-                df = pd.read_csv(uploaded_file)
+                # Try different parsing strategies
+                df = None
+                error_messages = []
                 
-                # Normalize column names
-                df = normalize_column_names(df)
+                # Strategy 1: Standard parsing with error handling
+                try:
+                    df = pd.read_csv(uploaded_file, on_bad_lines='skip')
+                    st.info(f"✓ Loaded file (some problematic rows may have been skipped)")
+                except Exception as e1:
+                    error_messages.append(f"Standard parsing: {str(e1)}")
+                    
+                    # Strategy 2: Try with different encoding
+                    try:
+                        uploaded_file.seek(0)  # Reset file pointer
+                        df = pd.read_csv(uploaded_file, encoding='latin-1', on_bad_lines='skip')
+                        st.info(f"✓ Loaded file with latin-1 encoding")
+                    except Exception as e2:
+                        error_messages.append(f"Latin-1 encoding: {str(e2)}")
+                        
+                        # Strategy 3: Try with quoting
+                        try:
+                            uploaded_file.seek(0)  # Reset file pointer
+                            df = pd.read_csv(uploaded_file, quoting=1, on_bad_lines='skip')  # QUOTE_ALL
+                            st.info(f"✓ Loaded file with full quoting")
+                        except Exception as e3:
+                            error_messages.append(f"Quote-all parsing: {str(e3)}")
+                            
+                            # Strategy 4: Manual parsing with pandas read_csv options
+                            try:
+                                uploaded_file.seek(0)  # Reset file pointer
+                                # First, detect the delimiter
+                                first_line = uploaded_file.readline().decode('utf-8', errors='ignore')
+                                uploaded_file.seek(0)
+                                
+                                # Try to detect separator
+                                if '\t' in first_line:
+                                    df = pd.read_csv(uploaded_file, sep='\t', on_bad_lines='skip')
+                                    st.info(f"✓ Loaded file as tab-separated")
+                                else:
+                                    # Last resort: flexible parsing
+                                    df = pd.read_csv(
+                                        uploaded_file, 
+                                        sep=',',
+                                        quoting=3,  # QUOTE_NONE
+                                        encoding='utf-8',
+                                        on_bad_lines='skip',
+                                        engine='python'
+                                    )
+                                    st.info(f"✓ Loaded file with flexible parsing")
+                            except Exception as e4:
+                                error_messages.append(f"Flexible parsing: {str(e4)}")
                 
-                # Validate columns
-                is_valid, missing_columns = validate_required_columns(df)
-                
-                if not is_valid:
-                    st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
-                    st.info("Your file has these columns: " + ", ".join(df.columns))
+                if df is None:
+                    st.error("❌ Could not parse the CSV file")
+                    st.error("Errors encountered:")
+                    for msg in error_messages:
+                        st.text(msg)
+                    
+                    st.markdown("""
+                    ### 💡 Troubleshooting Tips:
+                    1. **Check your CSV export settings in Google Search Console**
+                       - Use comma-separated format
+                       - Ensure UTF-8 encoding
+                    
+                    2. **Common issues:**
+                       - Commas in URLs or queries (should be quoted)
+                       - Special characters or emojis in queries
+                       - Line breaks within cells
+                    
+                    3. **Try re-exporting from GSC:**
+                       - Select a smaller date range
+                       - Avoid special characters in filters
+                       - Download as "Excel" then save as CSV
+                    """)
                     return
                 
-                # Prepare data
-                df = prepare_gsc_data(df, verbose=False)
-                
-                # Store in session state
-                st.session_state['gsc_data'] = df
-                st.session_state['data_loaded'] = True
-                
-                # Display success message
-                st.success(f"✅ Data loaded successfully! {len(df):,} rows found.")
-                
-                # Display data preview
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Rows", f"{len(df):,}")
-                with col2:
-                    st.metric("Unique Pages", f"{df['page'].nunique():,}")
-                with col3:
-                    st.metric("Unique Queries", f"{df['query'].nunique():,}")
-                with col4:
-                    st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+                # Check if we have data
+                if df is not None and len(df) > 0:
+                    # Show info about rows that might have been skipped
+                    original_shape = df.shape
+                    
+                    # Normalize column names
+                    df = normalize_column_names(df)
+                    
+                    # Validate columns
+                    is_valid, missing_columns = validate_required_columns(df)
+                    
+                    if not is_valid:
+                        st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
+                        st.info("Your file has these columns: " + ", ".join(df.columns))
+                        
+                        # Show sample of the data to help debug
+                        st.markdown("### 🔍 Data Sample (first 5 rows)")
+                        st.dataframe(df.head(), use_container_width=True)
+                        return
+                    
+                    # Prepare data
+                    df = prepare_gsc_data(df, verbose=False)
+                    
+                    # Store in session state
+                    st.session_state['gsc_data'] = df
+                    st.session_state['data_loaded'] = True
+                    
+                    # Display success message
+                    st.success(f"✅ Data loaded successfully! {len(df):,} rows found.")
+                    
+                    if original_shape[0] != len(df):
+                        st.warning(f"Note: {original_shape[0] - len(df)} rows were filtered out due to invalid data.")
+                    
+                    # Display data preview
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Rows", f"{len(df):,}")
+                    with col2:
+                        st.metric("Unique Pages", f"{df['page'].nunique():,}")
+                    with col3:
+                        st.metric("Unique Queries", f"{df['query'].nunique():,}")
+                    with col4:
+                        st.metric("Total Clicks", f"{df['clicks'].sum():,}")
                 
                 # Sample data
                 st.markdown("#### Sample Data")
