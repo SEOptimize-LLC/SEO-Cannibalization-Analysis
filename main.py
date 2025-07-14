@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="SEO Cannibalization Analysis",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Custom CSS for better UI
@@ -36,6 +36,13 @@ st.markdown("""
         background-color: #fffbf0;
         border-left-color: #ff9800;
     }
+    .metric-card {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #007bff;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -44,7 +51,6 @@ DEFAULT_BRAND_VARIANTS = []
 CLICK_PERCENTAGE_THRESHOLD = 0.1  # 10% threshold for cannibalization
 MIN_CLICKS_THRESHOLD = 10         # Minimum clicks to consider
 MIN_IMPRESSIONS_THRESHOLD = 100   # Minimum impressions to consider
-EXCLUDED_HOMEPAGE = "https://www.trysnow.com"
 
 def init_session_state():
     """Initialize session state variables"""
@@ -62,8 +68,6 @@ def init_session_state():
         st.session_state.processed_data = None
     if 'cannibalization_summary' not in st.session_state:
         st.session_state.cannibalization_summary = None
-    if 'page_opportunities' not in st.session_state:
-        st.session_state.page_opportunities = None
     if 'consolidation_recommendations' not in st.session_state:
         st.session_state.consolidation_recommendations = None
 
@@ -81,7 +85,8 @@ def clean_gsc_data(df):
         'removed_empty': 0,
         'removed_with_parameters': 0,
         'removed_pages_subfolder': 0,
-        'removed_homepage': 0
+        'removed_homepage': 0,
+        'removed_subdomains': 0
     }
 
     def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
@@ -114,22 +119,28 @@ def clean_gsc_data(df):
     cleaning_stats['removed_pages_subfolder'] = pages_mask.sum()
     df = df[~pages_mask]
     
-    # 5. Remove homepage URL
-    homepage_mask = df['page'] == EXCLUDED_HOMEPAGE
+    # 5. Remove homepage URLs (with and without trailing slash)
+    homepage_pattern = r'^https://[^/]+/?$'
+    homepage_mask = df['page'].str.contains(homepage_pattern, case=False, na=False)
     cleaning_stats['removed_homepage'] = homepage_mask.sum()
     df = df[~homepage_mask]
     
-    # 6. Remove rows with non-English queries
+    # 6. Remove subdomain URLs (anything that's not www or the main domain)
+    subdomain_mask = df['page'].str.contains(r'^https://(?!www\.)[^.]+\.[^/]+/', case=False, na=False)
+    cleaning_stats['removed_subdomains'] = subdomain_mask.sum()
+    df = df[~subdomain_mask]
+    
+    # 7. Remove rows with non-English queries
     english_mask = df['query'].astype(str).apply(lambda x: x.isascii())
     cleaning_stats['removed_non_english'] = (~english_mask).sum()
     df = df[english_mask]
     
-    # 7. Remove rows with empty queries or pages
+    # 8. Remove rows with empty queries or pages
     empty_mask = (df['query'].astype(str).str.strip() == '') | (df['page'].astype(str).str.strip() == '')
     cleaning_stats['removed_empty'] = empty_mask.sum()
     df = df[~empty_mask]
     
-    # 8. Ensure numeric columns are actually numeric
+    # 9. Ensure numeric columns are actually numeric
     df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
     df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
     df['position'] = pd.to_numeric(df['position'], errors='coerce')
@@ -139,12 +150,12 @@ def clean_gsc_data(df):
     cleaning_stats['removed_invalid_numbers'] = (~numeric_mask).sum()
     df = df[numeric_mask]
     
-    # 9. Additional cleaning: Remove obvious test/spam queries
+    # 10. Additional cleaning: Remove obvious test/spam queries
     spam_patterns = ['test', 'asdf', 'xxx', '123', 'lorem ipsum']
     spam_mask = df['query'].astype(str).str.lower().str.contains('|'.join(spam_patterns), na=False)
     df = df[~spam_mask]
     
-    # 10. Remove queries that are just numbers or single characters
+    # 11. Remove queries that are just numbers or single characters
     valid_query_mask = df['query'].astype(str).str.len() > 2
     df = df[valid_query_mask]
     
@@ -304,18 +315,10 @@ def main():
     st.title("🔍 SEO Cannibalization Analysis Tool")
     st.markdown("Identify and fix keyword cannibalization issues using Google Search Console data")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Upload", "📈 Analysis Results", "📄 Page Analysis", "💡 Recommendations"])
-    
-    with tab1:
-        st.markdown("### Upload Google Search Console Data")
-        st.markdown("""
-        Upload a CSV export from Google Search Console with the following columns:
-        - **page** (or url, landing_page)
-        - **query** (or keyword, search_query)
-        - **clicks**
-        - **impressions**
-        - **position** (or average_position)
-        """)
+    # Create sidebar for data upload and configuration
+    with st.sidebar:
+        st.markdown("### 📊 Data Upload")
+        st.markdown("Upload your Google Search Console CSV export")
         
         uploaded_file = st.file_uploader(
             "Choose a CSV file", 
@@ -339,7 +342,7 @@ def main():
                 
                 try:
                     df = pd.read_csv(uploaded_file, delimiter=delimiter, on_bad_lines='skip')
-                    st.info(f"✓ Loaded file successfully")
+                    st.success("✓ File loaded successfully")
                 except Exception as e:
                     uploaded_file.seek(0)
                     df = pd.read_csv(uploaded_file, on_bad_lines='skip')
@@ -349,53 +352,38 @@ def main():
                     return
                 
                 original_shape = df.shape
-                st.info(f"📊 Original data: {original_shape[0]:,} rows, {original_shape[1]} columns")
+                st.info(f"📊 Original: {original_shape[0]:,} rows, {original_shape[1]} columns")
                 
                 df = normalize_column_names(df)
                 
                 is_valid, missing_columns = validate_required_columns(df)
                 if not is_valid:
-                    st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
-                    st.info("Your file has these columns: " + ", ".join(df.columns))
-                    st.markdown("### 🔍 Data Sample (first 5 rows)")
-                    st.dataframe(df.head(), use_container_width=True)
+                    st.error(f"❌ Missing: {', '.join(missing_columns)}")
+                    st.info("Columns: " + ", ".join(df.columns))
                     return
                 
                 with st.spinner("🧹 Cleaning data..."):
                     df, cleaning_stats = clean_gsc_data(df)
                 
                 if cleaning_stats['total_removed'] > 0:
-                    st.warning(f"⚠️ Data Cleaning Results:")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
-                        if cleaning_stats['removed_name_errors'] > 0:
-                            st.caption(f"• #NAME? errors: {cleaning_stats['removed_name_errors']}")
-                        if cleaning_stats['removed_empty'] > 0:
-                            st.caption(f"• Empty values: {cleaning_stats['removed_empty']}")
-                    with col2:
-                        if cleaning_stats['removed_non_urls'] > 0:
-                            st.metric("Invalid URLs", cleaning_stats['removed_non_urls'])
-                        if cleaning_stats['removed_non_english'] > 0:
-                            st.caption(f"• Non-English: {cleaning_stats['removed_non_english']}")
-                        if cleaning_stats['removed_with_parameters'] > 0:
-                            st.metric("URLs with Parameters", cleaning_stats['removed_with_parameters'])
-                        if cleaning_stats['removed_pages_subfolder'] > 0:
-                            st.metric("/pages/ URLs", cleaning_stats['removed_pages_subfolder'])
-                        if cleaning_stats['removed_homepage'] > 0:
-                            st.metric("Homepage URLs", cleaning_stats['removed_homepage'])
-                    with col3:
-                        if cleaning_stats['removed_invalid_numbers'] > 0:
-                            st.metric("Invalid Numbers", cleaning_stats['removed_invalid_numbers'])
+                    st.warning("⚠️ Cleaning Results:")
+                    st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
                     
-                    st.info(f"✅ Clean data: {cleaning_stats['final_rows']:,} rows ready for analysis")
+                    if cleaning_stats['removed_with_parameters'] > 0:
+                        st.metric("URLs with Parameters", cleaning_stats['removed_with_parameters'])
+                    if cleaning_stats['removed_pages_subfolder'] > 0:
+                        st.metric("/pages/ URLs", cleaning_stats['removed_pages_subfolder'])
+                    if cleaning_stats['removed_homepage'] > 0:
+                        st.metric("Homepage URLs", cleaning_stats['removed_homepage'])
+                    if cleaning_stats['removed_subdomains'] > 0:
+                        st.metric("Subdomain URLs", cleaning_stats['removed_subdomains'])
+                    
+                    st.success(f"✅ Clean data: {cleaning_stats['final_rows']:,} rows")
                 
                 df = prepare_gsc_data(df, verbose=False)
                 
                 st.session_state['gsc_data'] = df
                 st.session_state['data_loaded'] = True
-                
-                st.success(f"✅ Data loaded and cleaned successfully! {len(df):,} rows ready for analysis.")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -407,157 +395,74 @@ def main():
                 with col4:
                     st.metric("Total Clicks", f"{df['clicks'].sum():,}")
                 
-                if df is not None and len(df) > 0:
-                    st.markdown("#### Sample Data")
-                    st.dataframe(df.head(100), use_container_width=True, height=300)
+                st.markdown("### 🏷️ Brand Configuration")
+                st.markdown("Enter brand name variations to exclude:")
                 
-                    st.markdown("### 🏷️ Brand Configuration")
-                    st.markdown("Enter your brand name variations to exclude from analysis (one per line)")
+                brand_input = st.text_area(
+                    "Brand variants",
+                    value="\n".join(st.session_state.brand_variants),
+                    height=100,
+                    help="One per line"
+                )
                 
-                    brand_input = st.text_area(
-                        "Brand variants",
-                        value="\n".join(st.session_state.brand_variants),
-                        height=100,
-                        help="Enter brand name variations to filter out branded searches"
-                    )
+                if brand_input:
+                    st.session_state.brand_variants = [v.strip() for v in brand_input.split('\n') if v.strip()]
                 
-                    if brand_input:
-                        st.session_state.brand_variants = [v.strip() for v in brand_input.split('\n') if v.strip()]
-                
-                    if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
-                        with st.spinner("Analyzing data for cannibalization issues..."):
-                            processed_data, scores, recommendations = run_cannibalization_analysis(
-                                df, 
-                                st.session_state.brand_variants
-                            )
-                            
-                            st.session_state.processed_data = processed_data
-                            st.session_state.cannibalization_summary = scores
-                            st.session_state.consolidation_recommendations = recommendations
-                            st.session_state.analysis_complete = True
-                            
-                            st.success("✅ Analysis complete!")
-                            st.balloons()
-                            
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                high_count = len(scores[scores['severity'] == 'High'])
-                                st.metric("High Severity Issues", high_count)
-                            with col2:
-                                medium_count = len(scores[scores['severity'] == 'Medium'])
-                                st.metric("Medium Severity Issues", medium_count)
-                            with col3:
-                                total_affected = len(scores)
-                                st.metric("Total Affected Queries", total_affected)
-                            
+                if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
+                    with st.spinner("Analyzing data..."):
+                        processed_data, scores, recommendations = run_cannibalization_analysis(
+                            df, 
+                            st.session_state.brand_variants
+                        )
+                        
+                        st.session_state.processed_data = processed_data
+                        st.session_state.cannibalization_summary = scores
+                        st.session_state.consolidation_recommendations = recommendations
+                        st.session_state.analysis_complete = True
+                        
+                        st.success("✅ Analysis complete!")
+                        st.balloons()
+                        
             except Exception as e:
-                st.error(f"Error loading file: {str(e)}")
-                st.info("Please ensure your CSV file has the correct format and try again.")
-        else:
-            st.info("👆 Please upload a Google Search Console CSV export to begin analysis.")
+                st.error(f"Error: {str(e)}")
+                st.info("Please check your CSV format and try again.")
     
-    with tab2:
-        if not st.session_state.analysis_complete:
-            st.warning("⚠️ Please upload data and run analysis first!")
+    # Main content area with tabs
+    tab1, tab2 = st.tabs(["📊 Dashboard", "📈 Analysis Results"])
+    
+    with tab1:
+        st.markdown("### 📊 Main Dashboard")
+        
+        if not st.session_state.data_loaded:
+            st.info("👈 Please upload data using the sidebar to begin analysis")
         else:
-            st.markdown("### Analysis Results")
-            
-            scores_df = st.session_state.cannibalization_summary
-            processed_data = st.session_state.processed_data
+            df = st.session_state.gsc_data
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                total_queries = len(scores_df)
-                st.metric("Total Cannibalized Queries", total_queries)
+                st.metric("Total Rows", f"{len(df):,}")
             with col2:
-                high_severity = len(scores_df[scores_df['severity'] == 'High'])
-                st.metric("High Severity", high_severity)
+                st.metric("Unique Pages", f"{df['page'].nunique():,}")
             with col3:
-                total_clicks_affected = scores_df['total_clicks'].sum()
-                st.metric("Total Clicks Affected", f"{total_clicks_affected:,}")
+                st.metric("Unique Queries", f"{df['query'].nunique():,}")
             with col4:
-                avg_pages = scores_df['num_pages'].mean()
-                st.metric("Avg Pages per Query", f"{avg_pages:.1f}")
+                st.metric("Total Clicks", f"{df['clicks'].sum():,}")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### Cannibalization Severity Distribution")
-                severity_counts = scores_df['severity'].value_counts()
-                fig = px.pie(
-                    values=severity_counts.values,
-                    names=severity_counts.index,
-                    color_discrete_map={'High': '#ff4444', 'Medium': '#ff9800', 'Low': '#4caf50'}
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            st.markdown("#### Sample Data")
+            st.dataframe(df.head(100), use_container_width=True, height=300)
+    
+    with tab2:
+        st.markdown("### 📈 Analysis Results")
+        
+        if not st.session_state.analysis_complete:
+            st.warning("⚠️ Please run analysis from the sidebar first!")
+        else:
+            scores_df = st.session_state.cannibalization_summary
+            recommendations = st.session_state.consolidation_recommendations
             
-            with col2:
-                st.markdown("#### Top 10 Affected Queries by Clicks")
-                top_queries = scores_df.nlargest(10, 'total_clicks')[['query', 'total_clicks', 'severity']]
-                st.dataframe(top_queries, use_container_width=True, hide_index=True)
-            
-            st.markdown("### Detailed Query Analysis")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                severity_filter = st.multiselect(
-                    "Filter by Severity",
-                    options=['High', 'Medium', 'Low'],
-                    default=['High', 'Medium']
-                )
-            with col2:
-                min_clicks = st.number_input(
-                    "Minimum Clicks",
-                    min_value=0,
-                    value=10,
-                    step=10
-                )
-            with col3:
-                sort_by = st.selectbox(
-                    "Sort by",
-                    options=['cannibalization_score', 'total_clicks', 'total_impressions', 'num_pages'],
-                    index=0
-                )
-            
-            filtered_scores = scores_df[
-                (scores_df['severity'].isin(severity_filter)) &
-                (scores_df['total_clicks'] >= min_clicks)
-            ].sort_values(sort_by, ascending=False)
-            
-            st.dataframe(
-                filtered_scores[['query', 'severity', 'cannibalization_score', 'num_pages', 'total_clicks', 'total_impressions']],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            if len(filtered_scores) > 0:
-                selected_query = st.selectbox("Select a query for detailed view", filtered_scores['query'].values)
-                
-                if selected_query:
-                    query_data = processed_data[processed_data['query'] == selected_query]
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown(f"#### Pages ranking for: {selected_query}")
-                        page_summary = query_data[['page', 'clicks', 'impressions', 'position', 'clicks_pct_vs_query']].copy()
-                        page_summary['clicks_pct_vs_query'] = (page_summary['clicks_pct_vs_query'] * 100).round(1)
-                        page_summary.columns = ['Page', 'Clicks', 'Impressions', 'Avg Position', 'Click %']
-                        st.dataframe(page_summary, use_container_width=True, hide_index=True)
-                    
-                    with col2:
-                        st.markdown("#### Click Distribution")
-                        fig = px.pie(
-                            query_data, 
-                            values='clicks', 
-                            names='page', 
-                            title=f"Click distribution for '{selected_query}'"
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            st.markdown("### Export Results")
-            
+            # Download button at the top
             export_data = scores_df.merge(
-                processed_data.groupby('query').agg({
+                st.session_state.processed_data.groupby('query').agg({
                     'page': lambda x: ' | '.join(x),
                     'clicks': 'sum',
                     'impressions': 'sum'
@@ -573,74 +478,27 @@ def main():
                 file_name=f"cannibalization_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
-    
-    with tab3:
-        if not st.session_state.analysis_complete:
-            st.warning("⚠️ Please upload data and run analysis first!")
-        else:
-            st.markdown("### Page-Level Cannibalization Analysis")
             
-            processed_data = st.session_state.processed_data
+            st.markdown("---")
             
-            page_summary = processed_data.groupby('page').agg({
-                'query': 'count',
-                'clicks': 'sum',
-                'impressions': 'sum'
-            }).reset_index()
+            # Analysis Results section
+            st.markdown("### Analysis Results")
             
-            page_summary.columns = ['Page', 'Cannibalized Queries', 'Total Clicks', 'Total Impressions']
-            page_summary = page_summary.sort_values('Cannibalized Queries', ascending=False)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                total_queries = len(scores_df)
+                st.metric("Total Cannibalized Queries", total_queries)
+            with col2:
+                high_severity = len(scores_df[scores_df['severity'] == 'High'])
+                st.metric("High Severity", high_severity)
+            with col3:
+                total_clicks_affected = scores_df['total_clicks'].sum()
+                st.metric("Total Clicks Affected", f"{total_clicks_affected:,}")
             
-            st.markdown("#### Top 20 Pages with Most Cannibalization Issues")
-            st.dataframe(page_summary.head(20), use_container_width=True, hide_index=True)
-            
-            selected_page = st.selectbox("Select a page for detailed view", page_summary['Page'].head(50).values)
-            
-            if selected_page:
-                # Get all queries for this page
-                page_queries = processed_data[processed_data['page'] == selected_page]
-                
-                # Get all other pages that compete with this page for the same queries
-                competing_pages = processed_data[
-                    processed_data['query'].isin(page_queries['query']) &
-                    (processed_data['page'] != selected_page)
-                ]
-                
-                st.markdown(f"#### Queries for: {selected_page}")
-                query_summary = page_queries[['query', 'clicks', 'impressions', 'position', 'clicks_pct_vs_page']].copy()
-                query_summary['clicks_pct_vs_page'] = (query_summary['clicks_pct_vs_page'] * 100).round(1)
-                query_summary.columns = ['Query', 'Clicks', 'Impressions', 'Avg Position', 'Page Click %']
-                st.dataframe(query_summary.sort_values('Clicks', ascending=False), use_container_width=True, hide_index=True)
-                
-                if len(competing_pages) > 0:
-                    st.markdown(f"#### Pages cannibalizing with {selected_page}")
-                    competing_summary = competing_pages[['page', 'query', 'clicks', 'impressions', 'position']].copy()
-                    competing_summary.columns = ['Competing Page', 'Query', 'Clicks', 'Impressions', 'Avg Position']
-                    st.dataframe(competing_summary.sort_values(['Query', 'Clicks'], ascending=[True, False]), use_container_width=True, hide_index=True)
-    
-    with tab4:
-        if not st.session_state.analysis_complete:
-            st.warning("⚠️ Please upload data and run analysis first!")
-        else:
+            # Consolidation Recommendations section
             st.markdown("### Consolidation Recommendations")
             
-            recommendations = st.session_state.consolidation_recommendations
-            
-            # Export button at the top
             if len(recommendations) > 0:
-                st.markdown("### Export Recommendations")
-                recs_csv = recommendations.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Recommendations",
-                    data=recs_csv,
-                    file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-                st.markdown("---")
-            
-            if len(recommendations) == 0:
-                st.info("No high-priority consolidation opportunities found.")
-            else:
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     total_recs = len(recommendations)
@@ -652,28 +510,63 @@ def main():
                     potential_clicks = recommendations['total_query_clicks'].sum()
                     st.metric("Total Clicks at Stake", f"{potential_clicks:,}")
                 
-                st.markdown("### Recommendations by Type")
+                # Download recommendations button
+                recs_csv = recommendations.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Recommendations",
+                    data=recs_csv,
+                    file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
                 
-                for rec_type in ['merge', 'redirect']:
-                    type_recs = recommendations[recommendations['consolidation_type'] == rec_type]
-                    
-                    if len(type_recs) > 0:
-                        st.markdown(f"#### {rec_type.title()} Recommendations")
-                        
-                        # Create expandable sections for each recommendation
-                        for _, rec in type_recs.iterrows():
-                            severity_class = "high" if rec['priority'] == 'High' else "medium"
-                            with st.expander(f"{rec['query']} - {rec['priority']} Priority"):
-                                st.markdown(f"""
-                                <div class="recommendation {severity_class}">
-                                    <strong>Query:</strong> {rec['query']}<br>
-                                    <strong>Action:</strong> {rec['consolidation_type'].title()} 
-                                    <code>{rec['secondary_page']}</code> into <code>{rec['primary_page']}</code><br>
-                                    <strong>Impact:</strong> {rec['total_query_clicks']} clicks 
-                                    ({rec['secondary_page_clicks']} from secondary page)<br>
-                                    <strong>Priority:</strong> {rec['priority']}
-                                </div>
-                                """, unsafe_allow_html=True)
+                st.markdown("---")
+                
+                # Display recommendations data
+                st.dataframe(
+                    recommendations[['query', 'primary_page', 'secondary_page', 'total_query_clicks', 'priority', 'consolidation_type']],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No consolidation opportunities found.")
+            
+            # Detailed query analysis
+            st.markdown("### Detailed Query Analysis")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                severity_filter = st.multiselect(
+                    "Filter by Severity",
+                    options=['High', 'Medium', 'Low'],
+                    default=['High', 'Medium'],
+                    key="severity_filter"
+                )
+            with col2:
+                min_clicks = st.number_input(
+                    "Minimum Clicks",
+                    min_value=0,
+                    value=10,
+                    step=10,
+                    key="min_clicks"
+                )
+            with col3:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    options=['cannibalization_score', 'total_clicks', 'total_impressions', 'num_pages'],
+                    index=0,
+                    key="sort_by"
+                )
+            
+            filtered_scores = scores_df[
+                (scores_df['severity'].isin(severity_filter)) &
+                (scores_df['total_clicks'] >= min_clicks)
+            ].sort_values(sort_by, ascending=False)
+            
+            st.dataframe(
+                filtered_scores[['query', 'severity', 'cannibalization_score', 'num_pages', 'total_clicks', 'total_impressions']],
+                use_container_width=True,
+                hide_index=True
+            )
 
 if __name__ == "__main__":
     main()
