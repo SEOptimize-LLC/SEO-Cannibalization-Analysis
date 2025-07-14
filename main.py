@@ -1,4 +1,6 @@
-""" SEO Cannibalization Analysis Tool Streamlined single-page application for keyword cannibalization detection """ 
+""" SEO Cannibalization Analysis Tool
+Streamlined single-page application for keyword cannibalization detection
+""" 
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +11,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from column_mapper import normalize_column_names, validate_required_columns, prepare_gsc_data
+from helpers import remove_brand_queries
+from urllib.parse import urlparse, parse_qs, urlunparse
 
 # Page configuration
 st.set_page_config(
@@ -17,10 +21,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
-# Custom CSS for better UI
-st.markdown("""
-""", unsafe_allow_html=True)
 
 # Configuration settings
 DEFAULT_BRAND_VARIANTS = []
@@ -49,6 +49,67 @@ def init_session_state():
     if 'consolidation_recommendations' not in st.session_state:
         st.session_state.consolidation_recommendations = None
 
+def clean_url_parameters(url):
+    """Remove tracking and session parameters from URLs"""
+    if pd.isna(url) or not isinstance(url, str):
+        return url
+    
+    try:
+        # Parse the URL
+        parsed = urlparse(url)
+        
+        # Parameters to remove (tracking, session, etc.)
+        params_to_remove = {
+            # Google Analytics & UTM parameters
+            'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+            'gclid', 'gclsrc', 'dclid', 'fbclid', 'msclkid',
+            
+            # E-commerce tracking
+            'variant', 'gQT', 'com_cvv', '_ef_transaction_id', 'affid', 'oid',
+            'discount', 'cbaff', 'selling_plan', 'purchase_type',
+            
+            # Social media tracking
+            'tw_source', 'tw_adid', 'tw_campaign', 'gad_source', 'gbraid',
+            
+            # Other common tracking parameters
+            'stkn', '_pos', '_sid', '_ss', '_rdiscovery-handle', '_rdiscovery-widget',
+            'view', 'snowball', 'wbraid', 'a', 'variation', 'country', 'currency'
+        }
+        
+        # Parse query parameters
+        query_params = parse_qs(parsed.query)
+        
+        # Remove tracking parameters
+        cleaned_params = {k: v for k, v in query_params.items() 
+                         if k.lower() not in params_to_remove}
+        
+        # Rebuild query string
+        if cleaned_params:
+            # Flatten the parameter values (parse_qs returns lists)
+            flat_params = []
+            for k, v_list in cleaned_params.items():
+                for v in v_list:
+                    flat_params.append(f"{k}={v}")
+            new_query = "&".join(flat_params)
+        else:
+            new_query = ""
+        
+        # Rebuild URL
+        cleaned_url = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            ""  # Remove fragment
+        ))
+        
+        return cleaned_url
+        
+    except Exception as e:
+        # If URL parsing fails, return original URL
+        return url
+
 def clean_gsc_data(df):
     """ Clean Google Search Console data by removing invalid entries """
     initial_rows = len(df)
@@ -60,20 +121,9 @@ def clean_gsc_data(df):
         'removed_non_urls': 0,
         'removed_non_english': 0,
         'removed_invalid_numbers': 0,
-        'removed_empty': 0
+        'removed_empty': 0,
+        'cleaned_urls': 0
     }
-
-    def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
-   
-        """
-        Remove rows whose query contains any of the given brand name variants.
-        """
-    
-        if not variants:
-            return df
-        pattern = "|".join([v.lower() for v in variants])
-        mask = ~df["query"].str.lower().str.contains(pattern, na=False)
-        return df.loc[mask].copy()
     
     # 1. Remove rows with #NAME? errors in query
     name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
@@ -85,18 +135,25 @@ def clean_gsc_data(df):
     cleaning_stats['removed_non_urls'] = (~valid_url_mask).sum()
     df = df[valid_url_mask]
     
-    # 3. Remove rows with non-English queries (optional - you can comment this out if you want to keep them)
+    # 3. Clean URL parameters BEFORE other processing
+    st.info("🧹 Cleaning URL parameters...")
+    original_unique_pages = df['page'].nunique()
+    df['page'] = df['page'].apply(clean_url_parameters)
+    cleaned_unique_pages = df['page'].nunique()
+    cleaning_stats['cleaned_urls'] = original_unique_pages - cleaned_unique_pages
+    
+    # 4. Remove rows with non-English queries (optional - you can comment this out if you want to keep them)
     # This removes queries with non-ASCII characters
     english_mask = df['query'].astype(str).apply(lambda x: x.isascii())
     cleaning_stats['removed_non_english'] = (~english_mask).sum()
     df = df[english_mask]
     
-    # 4. Remove rows with empty queries or pages
+    # 5. Remove rows with empty queries or pages
     empty_mask = (df['query'].astype(str).str.strip() == '') | (df['page'].astype(str).str.strip() == '')
     cleaning_stats['removed_empty'] = empty_mask.sum()
     df = df[~empty_mask]
     
-    # 5. Ensure numeric columns are actually numeric
+    # 6. Ensure numeric columns are actually numeric
     # Convert clicks, impressions, position to numeric, coercing errors to NaN
     df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
     df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
@@ -108,12 +165,12 @@ def clean_gsc_data(df):
     cleaning_stats['removed_invalid_numbers'] = (~numeric_mask).sum()
     df = df[numeric_mask]
     
-    # 6. Additional cleaning: Remove obvious test/spam queries
+    # 7. Additional cleaning: Remove obvious test/spam queries
     spam_patterns = ['test', 'asdf', 'xxx', '123', 'lorem ipsum']
     spam_mask = df['query'].astype(str).str.lower().str.contains('|'.join(spam_patterns), na=False)
     df = df[~spam_mask]
     
-    # 7. Remove queries that are just numbers or single characters
+    # 8. Remove queries that are just numbers or single characters
     valid_query_mask = df['query'].astype(str).str.len() > 2
     df = df[valid_query_mask]
     
@@ -122,22 +179,10 @@ def clean_gsc_data(df):
     cleaning_stats['final_rows'] = len(df)
     cleaning_stats['total_removed'] = total_removed
     
-    return df, cleaning_stats
-    """Remove branded keyword variations from the dataset"""
-    if not brand_variants:
-        return df
-    
-    # Create a regex pattern for brand variants
-    brand_pattern = '|'.join([variant.lower() for variant in brand_variants])
-    
-    # Filter out branded queries
-    mask = ~df['query'].str.lower().str.contains(brand_pattern, na=False)
-    filtered_df = df[mask].copy()
-
     # Remove columns where every value is None or NaN
     df = df.dropna(axis=1, how='all')
     
-    return filtered_df
+    return df, cleaning_stats
 
 def filter_by_multiple_pages(df):
     """Filter to keep only keywords that have multiple pages ranking"""
@@ -220,11 +265,11 @@ def calculate_cannibalization_score(df):
         
         scores.append({
             'query': query,
-            'cannibalization_score': score,
+            'cannibalization_score': round(score, 3),  # Round to 3 decimal places
             'num_pages': num_pages,
             'total_clicks': total_clicks,
             'total_impressions': total_impressions,
-            'click_entropy': entropy
+            'click_entropy': round(entropy, 3)  # Round to 3 decimal places
         })
     
     return pd.DataFrame(scores)
@@ -275,8 +320,8 @@ def identify_consolidation_opportunities(df, scores_df):
 def run_cannibalization_analysis(df, brand_variants):
     """Main analysis function"""
     
-    # Step 1: Remove branded keywords
-    df_filtered = remove_branded_keywords(df, brand_variants)
+    # Step 1: Remove branded keywords using the correct function from helpers
+    df_filtered = remove_brand_queries(df, brand_variants)
     
     # Step 2: Filter for multiple pages per query
     df_filtered = filter_by_multiple_pages(df_filtered)
@@ -401,6 +446,9 @@ def main():
                     with col3:
                         if cleaning_stats['removed_invalid_numbers'] > 0:
                             st.metric("Invalid Numbers", cleaning_stats['removed_invalid_numbers'])
+                        if cleaning_stats['cleaned_urls'] > 0:
+                            st.metric("URLs Cleaned", cleaning_stats['cleaned_urls'])
+                            st.caption("• Removed tracking parameters")
                     
                     st.info(f"✅ Clean data: {cleaning_stats['final_rows']:,} rows ready for analysis")
                 
@@ -600,16 +648,21 @@ def main():
             # Export results
             st.markdown("### Export Results")
             
-            # Prepare export data
-            export_data = scores_df.merge(
-                processed_data.groupby('query').agg({
-                    'page': lambda x: ' | '.join(x),
-                    'clicks': 'sum',
-                    'impressions': 'sum'
-                }).reset_index(),
-                on='query',
-                how='left'
-            )
+            # Prepare export data with rounded values
+            export_data = scores_df.copy()
+            
+            # Round numeric columns for better readability
+            export_data['cannibalization_score'] = export_data['cannibalization_score'].round(3)
+            export_data['click_entropy'] = export_data['click_entropy'].round(3)
+            
+            # Add page information
+            page_info = processed_data.groupby('query').agg({
+                'page': lambda x: ' | '.join(x),
+                'clicks': 'sum',
+                'impressions': 'sum'
+            }).reset_index()
+            
+            export_data = export_data.merge(page_info, on='query', how='left', suffixes=('', '_detailed'))
             
             # CSV download
             csv = export_data.to_csv(index=False)
@@ -644,16 +697,30 @@ def main():
             st.dataframe(page_summary.head(20), use_container_width=True, hide_index=True)
             
             # Page detail view
-            selected_page = st.selectbox("Select a page for detailed view", page_summary['Page'].head(50).values)
-            
-            if selected_page:
-                page_queries = processed_data[processed_data['page'] == selected_page]
+            if len(page_summary) > 0:
+                selected_page = st.selectbox("Select a page for detailed view", page_summary['Page'].head(50).values)
                 
-                st.markdown(f"#### Queries for: {selected_page}")
-                query_summary = page_queries[['query', 'clicks', 'impressions', 'position', 'clicks_pct_vs_page']].copy()
-                query_summary['clicks_pct_vs_page'] = (query_summary['clicks_pct_vs_page'] * 100).round(1)
-                query_summary.columns = ['Query', 'Clicks', 'Impressions', 'Avg Position', 'Page Click %']
-                st.dataframe(query_summary.sort_values('Clicks', ascending=False), use_container_width=True, hide_index=True)
+                if selected_page:
+                    page_queries = processed_data[processed_data['page'] == selected_page]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f"#### Queries cannibalized on: {selected_page}")
+                        query_summary = page_queries[['query', 'clicks', 'impressions', 'position']].copy()
+                        query_summary = query_summary.sort_values('clicks', ascending=False)
+                        st.dataframe(query_summary, use_container_width=True, hide_index=True)
+                    
+                    with col2:
+                        st.markdown("#### Query Performance")
+                        fig = px.bar(
+                            query_summary.head(10),
+                            x='query',
+                            y='clicks',
+                            title=f"Top queries for {selected_page}"
+                        )
+                        fig.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig, use_container_width=True)
     
     with tab4:
         # Recommendations Tab
@@ -664,55 +731,79 @@ def main():
             
             recommendations = st.session_state.consolidation_recommendations
             
-            if len(recommendations) == 0:
-                st.info("No high-priority consolidation opportunities found.")
-            else:
-                # Summary
+            if recommendations is not None and len(recommendations) > 0:
+                st.info(f"📊 Found {len(recommendations)} consolidation opportunities")
+                
+                # Summary metrics
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
-                    total_recs = len(recommendations)
-                    st.metric("Total Recommendations", total_recs)
-                
-                with col2:
                     high_priority = len(recommendations[recommendations['priority'] == 'High'])
                     st.metric("High Priority", high_priority)
-                
+                with col2:
+                    merge_ops = len(recommendations[recommendations['consolidation_type'] == 'merge'])
+                    st.metric("Merge Opportunities", merge_ops)
                 with col3:
-                    potential_clicks = recommendations['total_query_clicks'].sum()
-                    st.metric("Total Clicks at Stake", f"{potential_clicks:,}")
+                    redirect_ops = len(recommendations[recommendations['consolidation_type'] == 'redirect'])
+                    st.metric("Redirect Opportunities", redirect_ops)
                 
-                # Recommendations by type
-                st.markdown("### Recommendations by Type")
+                # Display recommendations
+                st.markdown("#### Detailed Recommendations")
                 
-                for rec_type in ['merge', 'redirect']:
-                    type_recs = recommendations[recommendations['consolidation_type'] == rec_type]
-                    
-                    if len(type_recs) > 0:
-                        st.markdown(f"#### {rec_type.title()} Recommendations")
+                # Filter options
+                col1, col2 = st.columns(2)
+                with col1:
+                    priority_filter = st.multiselect(
+                        "Filter by Priority",
+                        options=['High', 'Medium'],
+                        default=['High', 'Medium']
+                    )
+                with col2:
+                    type_filter = st.multiselect(
+                        "Filter by Type",
+                        options=['merge', 'redirect'],
+                        default=['merge', 'redirect']
+                    )
+                
+                # Apply filters
+                filtered_recommendations = recommendations[
+                    (recommendations['priority'].isin(priority_filter)) &
+                    (recommendations['consolidation_type'].isin(type_filter))
+                ]
+                
+                # Display recommendations
+                for idx, row in filtered_recommendations.iterrows():
+                    with st.expander(f"🔍 {row['query']} ({row['priority']} Priority)"):
+                        col1, col2 = st.columns(2)
                         
-                        for _, rec in type_recs.iterrows():
-                            severity_class = "high" if rec['priority'] == 'High' else "medium"
-                            st.markdown(f"""
-                            <div class="recommendation {severity_class}">
-                                <strong>Query:</strong> {rec['query']}<br>
-                                <strong>Action:</strong> {rec['consolidation_type'].title()} 
-                                <code>{rec['secondary_page']}</code> into <code>{rec['primary_page']}</code><br>
-                                <strong>Impact:</strong> {rec['total_query_clicks']} clicks 
-                                ({rec['secondary_page_clicks']} from secondary page)<br>
-                                <strong>Priority:</strong> {rec['priority']}
-                            </div>
-                            """, unsafe_allow_html=True)
+                        with col1:
+                            st.markdown("**Primary Page**")
+                            st.write(row['primary_page'])
+                            st.metric("Clicks", row['primary_page_clicks'])
+                        
+                        with col2:
+                            st.markdown("**Secondary Page**")
+                            st.write(row['secondary_page'])
+                            st.metric("Clicks", row['secondary_page_clicks'])
+                        
+                        st.markdown("**Recommendation**")
+                        if row['consolidation_type'] == 'merge':
+                            st.info(f"🔄 **Merge**: Combine content from secondary page into primary page")
+                        else:
+                            st.warning(f"➡️ **Redirect**: 301 redirect secondary page to primary page")
+                        
+                        st.metric("Total Query Clicks", row['total_query_clicks'])
                 
                 # Export recommendations
-                st.markdown("### Export Recommendations")
-                recs_csv = recommendations.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Recommendations",
-                    data=recs_csv,
-                    file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+                if len(filtered_recommendations) > 0:
+                    csv = filtered_recommendations.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Recommendations",
+                        data=csv,
+                        file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.info("✅ No consolidation opportunities found. Your site appears to have minimal cannibalization issues!")
 
 if __name__ == "__main__":
     main()
