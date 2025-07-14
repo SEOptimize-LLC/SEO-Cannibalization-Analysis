@@ -110,6 +110,42 @@ def clean_url_parameters(url):
         # If URL parsing fails, return original URL
         return url
 
+def filter_low_value_urls(df):
+    """Filter out low-value URLs like /pages/ subfolders and PPC landing pages"""
+    initial_count = len(df)
+    
+    # URLs to exclude
+    exclude_patterns = [
+        '/pages/',  # Exclude /pages/ subfolder
+        '/lp',      # Exclude landing pages
+        '/contact', # Exclude contact pages
+        '/thank-you', # Exclude thank you pages
+        '/checkout', # Exclude checkout pages
+        '/cart',    # Exclude cart pages
+        '/account', # Exclude account pages
+        '/login',   # Exclude login pages
+        '/signup',  # Exclude signup pages
+        '/register' # Exclude registration pages
+    ]
+    
+    # Create exclusion mask
+    exclude_mask = df['page'].astype(str).str.contains('|'.join(exclude_patterns), case=False, na=False)
+    
+    # Also exclude URLs with gQT parameter
+    gqt_mask = df['page'].astype(str).str.contains('gQT=', case=False, na=False)
+    
+    # Combine exclusions
+    total_exclude_mask = exclude_mask | gqt_mask
+    
+    # Filter out excluded URLs
+    filtered_df = df[~total_exclude_mask]
+    
+    removed_count = initial_count - len(filtered_df)
+    if removed_count > 0:
+        st.info(f"🚫 Filtered out {removed_count} low-value URLs")
+    
+    return filtered_df
+
 def clean_gsc_data(df):
     """ Clean Google Search Console data by removing invalid entries """
     initial_rows = len(df)
@@ -122,7 +158,8 @@ def clean_gsc_data(df):
         'removed_non_english': 0,
         'removed_invalid_numbers': 0,
         'removed_empty': 0,
-        'cleaned_urls': 0
+        'cleaned_urls': 0,
+        'removed_low_value': 0
     }
     
     # 1. Remove rows with #NAME? errors in query
@@ -142,35 +179,35 @@ def clean_gsc_data(df):
     cleaned_unique_pages = df['page'].nunique()
     cleaning_stats['cleaned_urls'] = original_unique_pages - cleaned_unique_pages
     
-    # 4. Remove rows with non-English queries (optional - you can comment this out if you want to keep them)
-    # This removes queries with non-ASCII characters
+    # 4. Filter out low-value URLs
+    df = filter_low_value_urls(df)
+    cleaning_stats['removed_low_value'] = initial_rows - len(df) - sum([cleaning_stats[k] for k in cleaning_stats if k != 'removed_low_value' and k != 'initial_rows'])
+    
+    # 5. Remove rows with non-English queries
     english_mask = df['query'].astype(str).apply(lambda x: x.isascii())
     cleaning_stats['removed_non_english'] = (~english_mask).sum()
     df = df[english_mask]
     
-    # 5. Remove rows with empty queries or pages
+    # 6. Remove rows with empty queries or pages
     empty_mask = (df['query'].astype(str).str.strip() == '') | (df['page'].astype(str).str.strip() == '')
     cleaning_stats['removed_empty'] = empty_mask.sum()
     df = df[~empty_mask]
     
-    # 6. Ensure numeric columns are actually numeric
-    # Convert clicks, impressions, position to numeric, coercing errors to NaN
+    # 7. Ensure numeric columns are actually numeric
     df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
     df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
     df['position'] = pd.to_numeric(df['position'], errors='coerce')
     
-    # Remove rows with invalid numeric values (NaN in clicks or impressions)
-    # Note: position can be NaN for some queries, so we're more lenient there
     numeric_mask = df['clicks'].notna() & df['impressions'].notna()
     cleaning_stats['removed_invalid_numbers'] = (~numeric_mask).sum()
     df = df[numeric_mask]
     
-    # 7. Additional cleaning: Remove obvious test/spam queries
+    # 8. Remove obvious test/spam queries
     spam_patterns = ['test', 'asdf', 'xxx', '123', 'lorem ipsum']
     spam_mask = df['query'].astype(str).str.lower().str.contains('|'.join(spam_patterns), na=False)
     df = df[~spam_mask]
     
-    # 8. Remove queries that are just numbers or single characters
+    # 9. Remove queries that are just numbers or single characters
     valid_query_mask = df['query'].astype(str).str.len() > 2
     df = df[valid_query_mask]
     
@@ -242,6 +279,9 @@ def calculate_cannibalization_score(df):
         total_impressions = query_data['impressions'].sum()
         
         # Click distribution entropy (higher = more distributed)
+        # This measures how evenly clicks are distributed across pages for a query
+        # Higher entropy = more cannibalization (clicks spread across multiple pages)
+        # Lower entropy = less cannibalization (clicks concentrated on fewer pages)
         if total_clicks > 0:
             click_distribution = query_data['clicks'] / total_clicks
             entropy = -sum(p * np.log2(p) if p > 0 else 0 for p in click_distribution)
@@ -265,11 +305,11 @@ def calculate_cannibalization_score(df):
         
         scores.append({
             'query': query,
-            'cannibalization_score': round(score, 3),  # Round to 3 decimal places
+            'cannibalization_score': round(score, 3),
             'num_pages': num_pages,
             'total_clicks': total_clicks,
             'total_impressions': total_impressions,
-            'click_entropy': round(entropy, 3)  # Round to 3 decimal places
+            'click_entropy': round(entropy, 3)  # Measure of click distribution across pages
         })
     
     return pd.DataFrame(scores)
@@ -431,26 +471,22 @@ def main():
                 # Show cleaning results
                 if cleaning_stats['total_removed'] > 0:
                     st.warning(f"⚠️ Data Cleaning Results:")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
-                        if cleaning_stats['removed_name_errors'] > 0:
-                            st.caption(f"• #NAME? errors: {cleaning_stats['removed_name_errors']}")
-                        if cleaning_stats['removed_empty'] > 0:
-                            st.caption(f"• Empty values: {cleaning_stats['removed_empty']}")
                     with col2:
-                        if cleaning_stats['removed_non_urls'] > 0:
-                            st.metric("Invalid URLs", cleaning_stats['removed_non_urls'])
-                        if cleaning_stats['removed_non_english'] > 0:
-                            st.caption(f"• Non-English: {cleaning_stats['removed_non_english']}")
+                        if cleaning_stats['removed_low_value'] > 0:
+                            st.metric("Low-Value URLs", cleaning_stats['removed_low_value'])
                     with col3:
-                        if cleaning_stats['removed_invalid_numbers'] > 0:
-                            st.metric("Invalid Numbers", cleaning_stats['removed_invalid_numbers'])
                         if cleaning_stats['cleaned_urls'] > 0:
                             st.metric("URLs Cleaned", cleaning_stats['cleaned_urls'])
-                            st.caption("• Removed tracking parameters")
+                    with col4:
+                        st.metric("Final Rows", f"{cleaning_stats['final_rows']:,}")
                     
-                    st.info(f"✅ Clean data: {cleaning_stats['final_rows']:,} rows ready for analysis")
+                    with st.expander("View detailed cleaning report"):
+                        for key, value in cleaning_stats.items():
+                            if value > 0 and key not in ['initial_rows', 'final_rows', 'total_removed']:
+                                st.caption(f"• {key.replace('_', ' ').title()}: {value}")
                 
                 # Prepare data (additional GSC-specific preparation)
                 df = prepare_gsc_data(df, verbose=False)
@@ -614,7 +650,7 @@ def main():
             
             # Display filtered results
             st.dataframe(
-                filtered_scores[['query', 'severity', 'cannibalization_score', 'num_pages', 'total_clicks', 'total_impressions']],
+                filtered_scores[['query', 'severity', 'cannibalization_score', 'num_pages', 'total_clicks', 'total_impressions', 'click_entropy']],
                 use_container_width=True,
                 hide_index=True
             )
@@ -674,7 +710,7 @@ def main():
             )
     
     with tab3:
-        # Page Analysis Tab
+        # Page Analysis Tab - Fixed to show page-level cannibalization
         if not st.session_state.analysis_complete:
             st.warning("⚠️ Please upload data and run analysis first!")
         else:
@@ -682,45 +718,90 @@ def main():
             
             processed_data = st.session_state.processed_data
             
-            # Aggregate by page
-            page_summary = processed_data.groupby('page').agg({
-                'query': 'count',
-                'clicks': 'sum',
-                'impressions': 'sum'
-            }).reset_index()
+            # Create page-level analysis
+            # For each page, find all queries where it competes with other pages
+            page_cannibalization = []
             
-            page_summary.columns = ['Page', 'Cannibalized Queries', 'Total Clicks', 'Total Impressions']
-            page_summary = page_summary.sort_values('Cannibalized Queries', ascending=False)
-            
-            # Display top cannibalized pages
-            st.markdown("#### Top 20 Pages with Most Cannibalization Issues")
-            st.dataframe(page_summary.head(20), use_container_width=True, hide_index=True)
-            
-            # Page detail view
-            if len(page_summary) > 0:
-                selected_page = st.selectbox("Select a page for detailed view", page_summary['Page'].head(50).values)
+            for page in processed_data['page'].unique():
+                page_data = processed_data[processed_data['page'] == page]
                 
-                if selected_page:
-                    page_queries = processed_data[processed_data['page'] == selected_page]
+                # Find all queries this page ranks for that also have other pages ranking
+                competing_queries = []
+                for query in page_data['query'].unique():
+                    query_data = processed_data[processed_data['query'] == query]
+                    if len(query_data) > 1:  # Multiple pages rank for this query
+                        competing_pages = query_data[query_data['page'] != page]
+                        if len(competing_pages) > 0:
+                            competing_queries.append({
+                                'query': query,
+                                'page_clicks': query_data[query_data['page'] == page]['clicks'].iloc[0],
+                                'competing_pages': len(competing_pages),
+                                'total_query_clicks': query_data['clicks'].sum(),
+                                'competitor_urls': competing_pages['page'].tolist(),
+                                'competitor_clicks': competing_pages['clicks'].tolist()
+                            })
+                
+                if competing_queries:
+                    page_cannibalization.append({
+                        'page': page,
+                        'total_competing_queries': len(competing_queries),
+                        'total_clicks_lost': sum([q['total_query_clicks'] - q['page_clicks'] for q in competing_queries]),
+                        'competing_queries': competing_queries
+                    })
+            
+            # Create dataframe for display
+            if page_cannibalization:
+                page_summary_df = pd.DataFrame(page_cannibalization)
+                page_summary_df = page_summary_df.sort_values('total_competing_queries', ascending=False)
+                
+                # Display top cannibalized pages
+                st.markdown("#### Pages with Most Cannibalization Issues")
+                display_df = page_summary_df[['page', 'total_competing_queries', 'total_clicks_lost']].copy()
+                display_df.columns = ['Page URL', 'Competing Queries', 'Potential Clicks Lost']
+                st.dataframe(display_df.head(20), use_container_width=True, hide_index=True)
+                
+                # Page detail view
+                if len(page_summary_df) > 0:
+                    selected_page = st.selectbox("Select a page to see what it's cannibalizing with", page_summary_df['page'].head(50).values)
                     
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown(f"#### Queries cannibalized on: {selected_page}")
-                        query_summary = page_queries[['query', 'clicks', 'impressions', 'position']].copy()
-                        query_summary = query_summary.sort_values('clicks', ascending=False)
-                        st.dataframe(query_summary, use_container_width=True, hide_index=True)
-                    
-                    with col2:
-                        st.markdown("#### Query Performance")
-                        fig = px.bar(
-                            query_summary.head(10),
-                            x='query',
-                            y='clicks',
-                            title=f"Top queries for {selected_page}"
-                        )
-                        fig.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig, use_container_width=True)
+                    if selected_page:
+                        page_info = next(item for item in page_cannibalization if item['page'] == selected_page)
+                        
+                        st.markdown(f"### Analysis for: {selected_page}")
+                        st.info(f"This page is competing on {page_info['total_competing_queries']} queries")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("#### Queries This Page Competes On")
+                            query_table = []
+                            for q in page_info['competing_queries']:
+                                query_table.append({
+                                    'Query': q['query'],
+                                    'This Page Clicks': q['page_clicks'],
+                                    'Total Query Clicks': q['total_query_clicks'],
+                                    'Competing Pages': q['competing_pages']
+                                })
+                            
+                            query_df = pd.DataFrame(query_table)
+                            st.dataframe(query_df, use_container_width=True, hide_index=True)
+                        
+                        with col2:
+                            st.markdown("#### Competing URLs")
+                            competing_table = []
+                            for q in page_info['competing_queries']:
+                                for i, (url, clicks) in enumerate(zip(q['competitor_urls'], q['competitor_clicks'])):
+                                    competing_table.append({
+                                        'Query': q['query'],
+                                        'Competing URL': url,
+                                        'Their Clicks': clicks,
+                                        'Your Clicks': q['page_clicks']
+                                    })
+                            
+                            competing_df = pd.DataFrame(competing_table)
+                            st.dataframe(competing_df, use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ No page-level cannibalization detected! Your pages appear to be well-optimized.")
     
     with tab4:
         # Recommendations Tab
