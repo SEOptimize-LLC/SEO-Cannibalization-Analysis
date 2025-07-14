@@ -434,62 +434,7 @@ def display_data_upload():
                         st.metric("Total Affected Queries", total_affected)
                     
                     if st.button("📈 View Results", type="primary"):
-                        st.session_state.current_page = page_key
-                st.rerun()
-        
-        st.markdown("---")
-        
-        # Data status
-        if st.session_state.data_loaded:
-            st.success("✅ Data Loaded")
-            if st.session_state.gsc_data is not None:
-                st.info(f"📊 {len(st.session_state.gsc_data):,} rows")
-        else:
-            st.warning("⚠️ No data loaded")
-        
-        # Analysis status
-        if st.session_state.analysis_complete:
-            st.success("✅ Analysis Complete")
-            if st.session_state.cannibalization_summary is not None:
-                total_issues = len(st.session_state.cannibalization_summary)
-                high_issues = len(st.session_state.cannibalization_summary[
-                    st.session_state.cannibalization_summary['severity'] == 'High'
-                ])
-                st.info(f"🔍 {total_issues} issues found")
-                st.info(f"🚨 {high_issues} high severity")
-        
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("""
-        This tool analyzes Google Search Console data to identify keyword cannibalization issues where multiple pages compete for the same keywords.
-        
-        **Version:** 2.0.0  
-        **Last Updated:** 2024
-        """)
-    
-    # Page routing
-    if st.session_state.current_page == "home":
-        display_home()
-    elif st.session_state.current_page == "upload":
-        display_data_upload()
-    elif st.session_state.current_page == "results":
-        display_results()
-    elif st.session_state.current_page == "recommendations":
-        display_recommendations()
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666; font-size: 0.8em;'>
-        SEO Cannibalization Analysis Tool | Built with Streamlit
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
-if __name__ == "__main__":
-    main()_page = "results"
+                        st.session_state.current_page = "results"
                         st.rerun()
                         
         except Exception as e:
@@ -786,4 +731,59 @@ def main():
         
         for page_key, page_name in pages.items():
             if st.button(page_name, key=f"nav_{page_key}", use_container_width=True):
-                st.session_state.current
+                st.session_state.current_page = page_key
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # Data status
+        if st.session_state.data_loaded:
+            st.success("✅ Data Loaded")
+            if st.session_state.gsc_data is not None:
+                st.info(f"📊 {len(st.session_state.gsc_data):,} rows")
+        else:
+            st.warning("⚠️ No data loaded")
+        
+        # Analysis status
+        if st.session_state.analysis_complete:
+            st.success("✅ Analysis Complete")
+            if st.session_state.cannibalization_summary is not None:
+                total_issues = len(st.session_state.cannibalization_summary)
+                high_issues = len(st.session_state.cannibalization_summary[
+                    st.session_state.cannibalization_summary['severity'] == 'High'
+                ])
+                st.info(f"🔍 {total_issues} issues found")
+                st.info(f"🚨 {high_issues} high severity")
+        
+        st.markdown("---")
+        st.markdown("### About")
+        st.markdown("""
+        This tool analyzes Google Search Console data to identify keyword cannibalization issues where multiple pages compete for the same keywords.
+        
+        **Version:** 2.0.0  
+        **Last Updated:** 2024
+        """)
+    
+    # Page routing
+    if st.session_state.current_page == "home":
+        display_home()
+    elif st.session_state.current_page == "upload":
+        display_data_upload()
+    elif st.session_state.current_page == "results":
+        display_results()
+    elif st.session_state.current_page == "recommendations":
+        display_recommendations()
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.8em;'>
+        SEO Cannibalization Analysis Tool | Built with Streamlit
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    main()
