@@ -1,8 +1,4 @@
-"""
-SEO Cannibalization Analysis Tool
-Streamlined single-page application for keyword cannibalization detection
-"""
-
+""" SEO Cannibalization Analysis Tool Streamlined single-page application for keyword cannibalization detection """ 
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -24,56 +20,13 @@ st.set_page_config(
 
 # Custom CSS for better UI
 st.markdown("""
-<style>
-    .main {
-        padding: 0rem 1rem;
-    }
-    .stButton>button {
-        width: 100%;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-    }
-    h1 {
-        color: #1f77b4;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        padding-left: 20px;
-        padding-right: 20px;
-    }
-    .cannibalization-high {
-        background-color: #ffebee;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
-    }
-    .cannibalization-medium {
-        background-color: #fff3e0;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
-    }
-    .cannibalization-low {
-        background-color: #e8f5e9;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
-    }
-</style>
 """, unsafe_allow_html=True)
 
 # Configuration settings
 DEFAULT_BRAND_VARIANTS = []
 CLICK_PERCENTAGE_THRESHOLD = 0.1  # 10% threshold for cannibalization
-MIN_CLICKS_THRESHOLD = 10  # Minimum clicks to consider
-MIN_IMPRESSIONS_THRESHOLD = 100  # Minimum impressions to consider
+MIN_CLICKS_THRESHOLD = 10         # Minimum clicks to consider
+MIN_IMPRESSIONS_THRESHOLD = 100   # Minimum impressions to consider
 
 def init_session_state():
     """Initialize session state variables"""
@@ -97,9 +50,7 @@ def init_session_state():
         st.session_state.consolidation_recommendations = None
 
 def clean_gsc_data(df):
-    """
-    Clean Google Search Console data by removing invalid entries
-    """
+    """ Clean Google Search Console data by removing invalid entries """
     initial_rows = len(df)
     
     # Track cleaning stats
@@ -113,7 +64,7 @@ def clean_gsc_data(df):
     }
     
     # 1. Remove rows with #NAME? errors in query
-    name_error_mask = df['query'].astype(str).str.contains('#NAME\?', na=False)
+    name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
     cleaning_stats['removed_name_errors'] = name_error_mask.sum()
     df = df[~name_error_mask]
     
@@ -188,6 +139,7 @@ def filter_by_clicks(df):
 
 def calculate_click_percentages(df):
     """Calculate click percentages for each page-query combination"""
+    
     # Calculate total clicks per query
     query_totals = df.groupby('query')['clicks'].sum().reset_index()
     query_totals.columns = ['query', 'total_clicks_query']
@@ -281,7 +233,7 @@ def identify_consolidation_opportunities(df, scores_df):
         
         if len(query_data) < 2:
             continue
-        
+            
         # Get top 2 pages
         top_pages = query_data.head(2)
         
@@ -307,6 +259,7 @@ def identify_consolidation_opportunities(df, scores_df):
 
 def run_cannibalization_analysis(df, brand_variants):
     """Main analysis function"""
+    
     # Step 1: Remove branded keywords
     df_filtered = remove_branded_keywords(df, brand_variants)
     
@@ -355,7 +308,7 @@ def main():
         """)
         
         uploaded_file = st.file_uploader(
-            "Choose a CSV file",
+            "Choose a CSV file", 
             type=['csv'],
             help="Select your Google Search Console export file"
         )
@@ -402,7 +355,6 @@ def main():
                 
                 # Validate columns
                 is_valid, missing_columns = validate_required_columns(df)
-                
                 if not is_valid:
                     st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
                     st.info("Your file has these columns: " + ", ".join(df.columns))
@@ -420,20 +372,17 @@ def main():
                 if cleaning_stats['total_removed'] > 0:
                     st.warning(f"⚠️ Data Cleaning Results:")
                     col1, col2, col3 = st.columns(3)
-                    
                     with col1:
                         st.metric("Rows Removed", f"{cleaning_stats['total_removed']:,}")
                         if cleaning_stats['removed_name_errors'] > 0:
                             st.caption(f"• #NAME? errors: {cleaning_stats['removed_name_errors']}")
                         if cleaning_stats['removed_empty'] > 0:
                             st.caption(f"• Empty values: {cleaning_stats['removed_empty']}")
-                    
                     with col2:
                         if cleaning_stats['removed_non_urls'] > 0:
                             st.metric("Invalid URLs", cleaning_stats['removed_non_urls'])
                         if cleaning_stats['removed_non_english'] > 0:
                             st.caption(f"• Non-English: {cleaning_stats['removed_non_english']}")
-                    
                     with col3:
                         if cleaning_stats['removed_invalid_numbers'] > 0:
                             st.metric("Invalid Numbers", cleaning_stats['removed_invalid_numbers'])
@@ -464,53 +413,53 @@ def main():
                 # Check if we have data
                 if df is not None and len(df) > 0:
                 
-                # Sample data
-                st.markdown("#### Sample Data")
-                st.dataframe(df.head(100), use_container_width=True, height=300)
+                    # Sample data
+                    st.markdown("#### Sample Data")
+                    st.dataframe(df.head(100), use_container_width=True, height=300)
                 
-                # Brand configuration
-                st.markdown("### 🏷️ Brand Configuration")
-                st.markdown("Enter your brand name variations to exclude from analysis (one per line)")
+                    # Brand configuration
+                    st.markdown("### 🏷️ Brand Configuration")
+                    st.markdown("Enter your brand name variations to exclude from analysis (one per line)")
                 
-                brand_input = st.text_area(
-                    "Brand variants",
-                    value="\n".join(st.session_state.brand_variants),
-                    height=100,
-                    help="Enter brand name variations to filter out branded searches"
-                )
+                    brand_input = st.text_area(
+                        "Brand variants",
+                        value="\n".join(st.session_state.brand_variants),
+                        height=100,
+                        help="Enter brand name variations to filter out branded searches"
+                    )
                 
-                if brand_input:
-                    st.session_state.brand_variants = [v.strip() for v in brand_input.split('\n') if v.strip()]
+                    if brand_input:
+                        st.session_state.brand_variants = [v.strip() for v in brand_input.split('\n') if v.strip()]
                 
-                # Run analysis button
-                if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
-                    with st.spinner("Analyzing data for cannibalization issues..."):
-                        # Run the analysis
-                        processed_data, scores, recommendations = run_cannibalization_analysis(
-                            df, 
-                            st.session_state.brand_variants
-                        )
-                        
-                        # Store results
-                        st.session_state.processed_data = processed_data
-                        st.session_state.cannibalization_summary = scores
-                        st.session_state.consolidation_recommendations = recommendations
-                        st.session_state.analysis_complete = True
-                        
-                        st.success("✅ Analysis complete!")
-                        st.balloons()
-                        
-                        # Show summary
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            high_count = len(scores[scores['severity'] == 'High'])
-                            st.metric("High Severity Issues", high_count)
-                        with col2:
-                            medium_count = len(scores[scores['severity'] == 'Medium'])
-                            st.metric("Medium Severity Issues", medium_count)
-                        with col3:
-                            total_affected = len(scores)
-                            st.metric("Total Affected Queries", total_affected)
+                    # Run analysis button
+                    if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
+                        with st.spinner("Analyzing data for cannibalization issues..."):
+                            # Run the analysis
+                            processed_data, scores, recommendations = run_cannibalization_analysis(
+                                df, 
+                                st.session_state.brand_variants
+                            )
+                            
+                            # Store results
+                            st.session_state.processed_data = processed_data
+                            st.session_state.cannibalization_summary = scores
+                            st.session_state.consolidation_recommendations = recommendations
+                            st.session_state.analysis_complete = True
+                            
+                            st.success("✅ Analysis complete!")
+                            st.balloons()
+                            
+                            # Show summary
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                high_count = len(scores[scores['severity'] == 'High'])
+                                st.metric("High Severity Issues", high_count)
+                            with col2:
+                                medium_count = len(scores[scores['severity'] == 'Medium'])
+                                st.metric("Medium Severity Issues", medium_count)
+                            with col3:
+                                total_affected = len(scores)
+                                st.metric("Total Affected Queries", total_affected)
                             
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
@@ -555,7 +504,7 @@ def main():
                 st.markdown("#### Cannibalization Severity Distribution")
                 severity_counts = scores_df['severity'].value_counts()
                 fig = px.pie(
-                    values=severity_counts.values, 
+                    values=severity_counts.values,
                     names=severity_counts.index,
                     color_discrete_map={'High': '#ff4444', 'Medium': '#ff9800', 'Low': '#4caf50'}
                 )
@@ -571,12 +520,14 @@ def main():
             
             # Filters
             col1, col2, col3 = st.columns(3)
+            
             with col1:
                 severity_filter = st.multiselect(
                     "Filter by Severity",
                     options=['High', 'Medium', 'Low'],
                     default=['High', 'Medium']
                 )
+            
             with col2:
                 min_clicks = st.number_input(
                     "Minimum Clicks",
@@ -584,6 +535,7 @@ def main():
                     value=10,
                     step=10
                 )
+            
             with col3:
                 sort_by = st.selectbox(
                     "Sort by",
@@ -625,7 +577,7 @@ def main():
                         fig = px.pie(
                             query_data, 
                             values='clicks', 
-                            names='page',
+                            names='page', 
                             title=f"Click distribution for '{selected_query}'"
                         )
                         st.plotly_chart(fig, use_container_width=True)
@@ -668,6 +620,7 @@ def main():
                 'clicks': 'sum',
                 'impressions': 'sum'
             }).reset_index()
+            
             page_summary.columns = ['Page', 'Cannibalized Queries', 'Total Clicks', 'Total Impressions']
             page_summary = page_summary.sort_values('Cannibalized Queries', ascending=False)
             
@@ -725,54 +678,26 @@ def main():
                         
                         for _, rec in type_recs.iterrows():
                             severity_class = "high" if rec['priority'] == 'High' else "medium"
-                            
                             st.markdown(f"""
-                            <div class="cannibalization-{severity_class}">
+                            <div class="recommendation {severity_class}">
                                 <strong>Query:</strong> {rec['query']}<br>
-                                <strong>Primary Page:</strong> {rec['primary_page'][:80]}... ({rec['primary_page_clicks']} clicks)<br>
-                                <strong>Secondary Page:</strong> {rec['secondary_page'][:80]}... ({rec['secondary_page_clicks']} clicks)<br>
-                                <strong>Total Query Clicks:</strong> {rec['total_query_clicks']}<br>
-                                <strong>Recommendation:</strong> {rec_type.title()} secondary page into primary page<br>
+                                <strong>Action:</strong> {rec['consolidation_type'].title()} 
+                                <code>{rec['secondary_page']}</code> into <code>{rec['primary_page']}</code><br>
+                                <strong>Impact:</strong> {rec['total_query_clicks']} clicks 
+                                ({rec['secondary_page_clicks']} from secondary page)<br>
                                 <strong>Priority:</strong> {rec['priority']}
                             </div>
                             """, unsafe_allow_html=True)
                 
                 # Export recommendations
-                if len(recommendations) > 0:
-                    rec_csv = recommendations.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Consolidation Recommendations",
-                        data=rec_csv,
-                        file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                
-                # Implementation guide
-                st.markdown("### 📚 Implementation Guide")
-                
-                with st.expander("How to Implement Consolidation", expanded=True):
-                    st.markdown("""
-                    #### For Merge Recommendations:
-                    1. **Content Audit**: Review both pages to identify unique valuable content
-                    2. **Content Integration**: Add valuable content from secondary page to primary page
-                    3. **Update Internal Links**: Point all internal links to the primary page
-                    4. **301 Redirect**: Implement redirect from secondary to primary page
-                    5. **Update Sitemap**: Remove secondary page and ensure primary page is included
-                    6. **Monitor**: Track rankings and traffic for 4-8 weeks
-                    
-                    #### For Redirect Recommendations:
-                    1. **Implement 301 Redirect**: Set up permanent redirect to primary page
-                    2. **Update Internal Links**: Fix any internal links pointing to redirected page
-                    3. **Remove from Sitemap**: Ensure redirected URL is not in sitemap
-                    4. **Monitor**: Check for redirect chains and monitor performance
-                    
-                    #### Best Practices:
-                    - Always backup content before making changes
-                    - Test redirects in staging environment first
-                    - Monitor Search Console for crawl errors
-                    - Track keyword rankings before and after changes
-                    - Allow 4-8 weeks for Google to process changes
-                    """)
+                st.markdown("### Export Recommendations")
+                recs_csv = recommendations.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Recommendations",
+                    data=recs_csv,
+                    file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
 
 if __name__ == "__main__":
     main()
