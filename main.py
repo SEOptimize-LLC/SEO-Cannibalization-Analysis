@@ -65,15 +65,15 @@ def clean_gsc_data(df):
 
     def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
    
-    """
-    Remove rows whose query contains any of the given brand name variants.
-    """
+        """
+        Remove rows whose query contains any of the given brand name variants.
+        """
     
-    if not variants:
-        return df
-    pattern = "|".join([v.lower() for v in variants])
-    mask = ~df["query"].str.lower().str.contains(pattern, na=False)
-    return df.loc[mask].copy()
+        if not variants:
+            return df
+        pattern = "|".join([v.lower() for v in variants])
+        mask = ~df["query"].str.lower().str.contains(pattern, na=False)
+        return df.loc[mask].copy()
     
     # 1. Remove rows with #NAME? errors in query
     name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
