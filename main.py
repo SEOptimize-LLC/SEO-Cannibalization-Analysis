@@ -360,24 +360,40 @@ def main():
                     st.session_state.brand_variants = [v.strip() for v in brand_input.split('\n') if v.strip()]
                 
                 if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
-                    with st.spinner("Analyzing data..."):
-                        processed_data, scores = run_cannibalization_analysis(
-                            df, 
-                            st.session_state.brand_variants
-                        )
-                        
-                        url_consolidation = run_url_consolidation_analysis(
-                            df, 
-                            embeddings_df
-                        )
-                        
-                        st.session_state.processed_data = processed_data
-                        st.session_state.cannibalization_summary = scores
-                        st.session_state.url_consolidation = url_consolidation
-                        st.session_state.analysis_complete = True
-                        
-                        st.success("✅ Analysis complete!")
-                        st.balloons()
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("🧹 Cleaning and preparing data...")
+                    progress_bar.progress(10)
+                    
+                    processed_data, scores = run_cannibalization_analysis(
+                        df, 
+                        st.session_state.brand_variants
+                    )
+                    
+                    status_text.text("🔍 Analyzing URL consolidation opportunities...")
+                    progress_bar.progress(50)
+                    
+                    url_consolidation = run_url_consolidation_analysis(
+                        df, 
+                        embeddings_df
+                    )
+                    
+                    status_text.text("📊 Finalizing results...")
+                    progress_bar.progress(90)
+                    
+                    st.session_state.processed_data = processed_data
+                    st.session_state.cannibalization_summary = scores
+                    st.session_state.url_consolidation = url_consolidation
+                    st.session_state.analysis_complete = True
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Analysis complete!")
+                    st.balloons()
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
                         
             except Exception as e:
                 st.error(f"Error: {str(e)}")
