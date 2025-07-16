@@ -1,21 +1,19 @@
 """
-URL Consolidation Analyzer with Embeddings
-Provides accurate URL-level analysis using semantic similarity and keyword overlap
+URL Consolidation Analyzer with Fallback
+Provides accurate URL-level analysis with keyword overlap and simple semantic similarity
 """
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import re
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-import hashlib
+from collections import Counter
 
 class URLConsolidationAnalyzer:
-    """Advanced URL consolidation analysis with embeddings and semantic similarity"""
+    """URL consolidation analysis with keyword overlap and text similarity"""
     
     def __init__(self):
-        self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        self.stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
         
     def analyze_url_consolidation(self, df: pd.DataFrame) -> Dict:
         """
@@ -30,15 +28,15 @@ class URLConsolidationAnalyzer:
         # Calculate URL-level metrics
         url_metrics = self._calculate_url_metrics(df)
         
-        # Calculate semantic similarity between URLs
-        semantic_similarity = self._calculate_semantic_similarity(df)
-        
         # Calculate keyword overlap
         keyword_overlap = self._calculate_keyword_overlap(df)
         
+        # Calculate simple semantic similarity
+        semantic_similarity = self._calculate_simple_similarity(df)
+        
         # Generate consolidation recommendations
         recommendations = self._generate_consolidation_recommendations(
-            df, url_metrics, semantic_similarity, keyword_overlap
+            df, url_metrics, keyword_overlap, semantic_similarity
         )
         
         return {
@@ -63,32 +61,6 @@ class URLConsolidationAnalyzer:
         url_metrics['ctr'] = (url_metrics['total_clicks'] / url_metrics['total_impressions'] * 100).round(2)
         
         return url_metrics
-    
-    def _calculate_semantic_similarity(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate semantic similarity between URLs using TF-IDF and embeddings"""
-        # Create URL-query mapping
-        url_queries = df.groupby('page')['query'].apply(lambda x: ' '.join(x)).to_dict()
-        
-        # Prepare documents for TF-IDF
-        urls = list(url_queries.keys())
-        documents = [url_queries[url] for url in urls]
-        
-        # Calculate TF-IDF vectors
-        try:
-            tfidf_matrix = self.vectorizer.fit_transform(documents)
-            similarity_matrix = cosine_similarity(tfidf_matrix)
-        except:
-            # Fallback if TF-IDF fails
-            similarity_matrix = np.zeros((len(urls), len(urls)))
-        
-        # Create similarity DataFrame
-        similarity_df = pd.DataFrame(
-            similarity_matrix,
-            index=urls,
-            columns=urls
-        )
-        
-        return similarity_df
     
     def _calculate_keyword_overlap(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate keyword overlap between URL pairs"""
@@ -131,10 +103,38 @@ class URLConsolidationAnalyzer:
         
         return pd.DataFrame(overlap_data)
     
+    def _calculate_simple_similarity(self, df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+        """Calculate simple text similarity without sklearn"""
+        url_queries = df.groupby('page')['query'].apply(lambda x: ' '.join(x).lower()).to_dict()
+        
+        similarity_scores = {}
+        urls = list(url_queries.keys())
+        
+        for i, url1 in enumerate(urls):
+            similarity_scores[url1] = {}
+            for url2 in urls:
+                if url1 == url2:
+                    similarity_scores[url1][url2] = 1.0
+                else:
+                    text1 = url_queries[url1]
+                    text2 = url_queries[url2]
+                    
+                    # Simple Jaccard similarity on words
+                    words1 = set(text1.split()) - self.stop_words
+                    words2 = set(text2.split()) - self.stop_words
+                    
+                    intersection = words1.intersection(words2)
+                    union = words1.union(words2)
+                    
+                    similarity = len(intersection) / len(union) if union else 0
+                    similarity_scores[url1][url2] = similarity
+        
+        return similarity_scores
+    
     def _generate_consolidation_recommendations(self, df: pd.DataFrame, 
                                               url_metrics: pd.DataFrame,
-                                              semantic_similarity: pd.DataFrame,
-                                              keyword_overlap: pd.DataFrame) -> pd.DataFrame:
+                                              keyword_overlap: pd.DataFrame,
+                                              semantic_similarity: Dict) -> pd.DataFrame:
         """Generate accurate consolidation recommendations"""
         recommendations = []
         
@@ -157,7 +157,7 @@ class URLConsolidationAnalyzer:
                 primary_metrics, secondary_metrics = url2_metrics, url1_metrics
             
             # Calculate semantic similarity
-            semantic_sim = semantic_similarity.loc[primary_url, secondary_url]
+            semantic_sim = semantic_similarity[primary_url][secondary_url]
             
             # Calculate metrics
             total_combined_clicks = primary_metrics['total_clicks'] + secondary_metrics['total_clicks']
@@ -222,9 +222,9 @@ class URLConsolidationAnalyzer:
         else:
             return "False Positive"
     
-    def _calculate_priority(self, potential_recovery: int, overlap_count: int, semantic_sim: float) -> str:
+    def _calculate_priority(self, potential_recovery: int, overlap_count: int, semantic_similarity: float) -> str:
         """Calculate priority based on potential impact"""
-        score = (potential_recovery / 100) + (overlap_count / 10) + (semantic_sim * 10)
+        score = (potential_recovery / 100) + (overlap_count / 10) + (semantic_similarity * 10)
         
         if score >= 20:
             return "High"
