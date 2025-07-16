@@ -1,206 +1,167 @@
 """
 Enhanced Consolidation Analysis Module
-Handles large datasets with 2,000+ URLs efficiently
+Similarity-first approach using proven fast processing
 """
 
 import pandas as pd
+import numpy as np
 from typing import Dict, List
-import hashlib
+import re
+from collections import Counter
 
 
 class EnhancedConsolidationAnalyzer:
-    """Enhanced consolidation analysis for large datasets"""
+    """Fast similarity-based consolidation analysis"""
 
-    def __init__(self, max_urls: int = 2000, min_overlap: int = 1):
+    def __init__(self, max_urls: int = 1000, similarity_threshold: float = 0.85):
         self.max_urls = max_urls
-        self.min_overlap = min_overlap
+        self.similarity_threshold = similarity_threshold
 
     def analyze_url_consolidation(self, df: pd.DataFrame) -> Dict:
-        """
-        Analyze URL consolidation opportunities for large datasets
-        
-        Args:
-            df: DataFrame with query-page performance data
-            
-        Returns:
-            Dictionary with URL-level consolidation analysis
-        """
+        """Fast similarity-based analysis"""
         print(f"Processing {len(df)} rows...")
         
-        # Step 1: Consolidate URL metrics efficiently
-        url_consolidated = self._consolidate_url_metrics_fast(df)
-        print(f"Found {len(url_consolidated)} unique URLs")
+        # Step 1: Fast URL consolidation
+        url_consolidated = self._fast_consolidate(df)
+        print(f"Consolidated to {len(url_consolidated)} URLs")
         
-        # Step 2: Limit to manageable number if needed
+        # Step 2: Limit to manageable number
         if len(url_consolidated) > self.max_urls:
-            print(f"Limiting to top {self.max_urls} URLs by traffic...")
-            url_consolidated = self._limit_top_urls(url_consolidated, self.max_urls)
+            url_consolidated = url_consolidated.head(self.max_urls)
+            print(f"Limited to top {self.max_urls} URLs")
         
-        # Step 3: Calculate keyword overlap efficiently
-        url_overlap_matrix = self._calculate_overlap_efficient(url_consolidated)
-        print(f"Found {len(url_overlap_matrix)} URL pairs with overlap")
+        # Step 3: Ultra-fast similarity calculation
+        similarity_matrix = self._calculate_similarity_fast(url_consolidated)
+        print(f"Found {len(similarity_matrix)} similar pairs")
         
         # Step 4: Generate recommendations
-        recommendations = self._generate_recommendations_fast(
-            url_consolidated, url_overlap_matrix
+        recommendations = self._generate_recommendations(
+            url_consolidated, similarity_matrix
         )
-        
-        # Step 5: Summary
-        summary = self._create_summary(recommendations)
         
         return {
             'url_metrics': url_consolidated,
-            'keyword_overlap': url_overlap_matrix,
+            'similarity_matrix': similarity_matrix,
             'consolidation_recommendations': recommendations,
-            'summary': summary
+            'summary': self._create_summary(recommendations)
         }
 
-    def _consolidate_url_metrics_fast(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Fast URL consolidation using vectorized operations"""
-        # Group by URL and aggregate
-        consolidated = df.groupby('page').agg({
-            'query': lambda x: list(x.unique()),
+    def _fast_consolidate(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Ultra-fast URL consolidation"""
+        return df.groupby('page').agg({
+            'query': lambda x: ' '.join(set(x)),  # Join queries for similarity
             'clicks': 'sum',
-            'impressions': 'sum',
-            'position': 'mean'
-        }).reset_index()
-        
-        consolidated.columns = [
-            'page', 'queries', 'total_clicks', 'total_impressions', 'avg_position'
-        ]
-        
-        # Add calculated fields
-        consolidated['num_queries'] = consolidated['queries'].apply(len)
-        consolidated['ctr'] = (
-            consolidated['total_clicks'] / 
-            consolidated['total_impressions'] * 100
-        ).round(2)
-        
-        return consolidated
+            'impressions': 'sum'
+        }).reset_index().rename(columns={
+            'query': 'query_text',
+            'clicks': 'total_clicks',
+            'impressions': 'total_impressions'
+        })
 
-    def _limit_top_urls(self, url_df: pd.DataFrame, max_urls: int) -> pd.DataFrame:
-        """Limit to top URLs by traffic for performance"""
-        return url_df.nlargest(max_urls, 'total_clicks')
-
-    def _calculate_overlap_efficient(self, url_df: pd.DataFrame) -> pd.DataFrame:
-        """Efficient keyword overlap calculation for large datasets"""
-        # Create URL->queries mapping
-        url_queries = dict(zip(url_df['page'], url_df['queries']))
+    def _calculate_similarity_fast(self, url_df: pd.DataFrame) -> pd.DataFrame:
+        """Ultra-fast similarity using simple text comparison"""
+        # Create query text mapping
+        url_queries = dict(zip(url_df['page'], url_df['query_text']))
         
-        overlap_data = []
+        results = []
         urls = list(url_queries.keys())
         
-        # Use set operations for speed
+        # Fast similarity calculation
         for i, url1 in enumerate(urls):
-            queries1 = set(url_queries[url1])
+            text1 = url_queries[url1].lower()
+            words1 = set(text1.split())
             
             for url2 in urls[i+1:]:
-                queries2 = set(url_queries[url2])
+                text2 = url_queries[url2].lower()
+                words2 = set(text2.split())
                 
-                # Fast intersection
-                intersection = queries1 & queries2
-                if len(intersection) < self.min_overlap:
+                # Fast Jaccard similarity
+                intersection = words1 & words2
+                union = words1 | words2
+                
+                if len(union) == 0:
                     continue
                 
-                # Fast union and similarity
-                union_size = len(queries1 | queries2)
-                if union_size == 0:
-                    continue
+                similarity = len(intersection) / len(union)
                 
-                jaccard_similarity = round((len(intersection) / union_size) * 100, 2)
-                
-                overlap_data.append({
-                    'url1': url1,
-                    'url2': url2,
-                    'overlap_count': len(intersection),
-                    'url1_total_queries': len(queries1),
-                    'url2_total_queries': len(queries2),
-                    'jaccard_similarity': jaccard_similarity
-                })
+                # Only include high similarity pairs
+                if similarity >= self.similarity_threshold:
+                    results.append({
+                        'url1': url1,
+                        'url2': url2,
+                        'similarity_score': round(similarity, 3),
+                        'common_words': len(intersection),
+                        'total_words': len(union)
+                    })
         
-        return pd.DataFrame(overlap_data)
+        return pd.DataFrame(results)
 
-    def _generate_recommendations_fast(self, url_df: pd.DataFrame, 
-                                     overlap_matrix: pd.DataFrame) -> pd.DataFrame:
-        """Generate recommendations efficiently"""
-        if overlap_matrix.empty:
+    def _generate_recommendations(self, url_df: pd.DataFrame, 
+                                similarity_df: pd.DataFrame) -> pd.DataFrame:
+        """Generate recommendations from similarity"""
+        if similarity_df.empty:
             return pd.DataFrame()
         
         # Create lookup
-        url_lookup = dict(zip(url_df['page'], url_df.to_dict('records')))
+        url_lookup = url_df.set_index('page')[
+            ['total_clicks', 'total_impressions', 'query_text']
+        ].to_dict('index')
         
         recommendations = []
         
-        for _, row in overlap_matrix.iterrows():
+        for _, row in similarity_df.iterrows():
             url1, url2 = row['url1'], row['url2']
             
             # Get metrics
-            metrics1 = url_lookup[url1]
-            metrics2 = url_lookup[url2]
+            clicks1 = url_lookup[url1]['total_clicks']
+            clicks2 = url_lookup[url2]['total_clicks']
+            
+            # Count keywords (approximate)
+            keywords1 = len(url_lookup[url1]['query_text'].split())
+            keywords2 = len(url_lookup[url2]['query_text'].split())
             
             # Determine primary/secondary
-            if metrics1['total_clicks'] >= metrics2['total_clicks']:
+            if clicks1 >= clicks2:
                 primary, secondary = url1, url2
-                primary_metrics, secondary_metrics = metrics1, metrics2
+                primary_clicks, secondary_clicks = clicks1, clicks2
+                primary_keywords, secondary_keywords = keywords1, keywords2
             else:
                 primary, secondary = url2, url1
-                primary_metrics, secondary_metrics = metrics2, metrics1
+                primary_clicks, secondary_clicks = clicks2, clicks1
+                primary_keywords, secondary_keywords = keywords2, keywords1
             
-            # Apply consolidation logic
-            similarity = row['jaccard_similarity']
-            consolidation_type = self._get_consolidation_type(
-                similarity, secondary_metrics, primary_metrics
-            )
+            # Simple consolidation logic
+            similarity = row['similarity_score']
+            if similarity >= 0.9:
+                if secondary_keywords >= 100:
+                    action = 'Optimize'
+                elif secondary_clicks < primary_clicks * 0.2:
+                    action = 'Redirect'
+                else:
+                    action = 'Merge'
+            else:
+                action = 'Internal Link'
             
-            priority = self._get_priority(secondary_metrics['total_clicks'])
+            priority = 'High' if secondary_clicks > 1000 else \
+                      'Medium' if secondary_clicks > 100 else 'Low'
             
             recommendations.append({
                 'primary_page': primary,
-                'primary_page_indexed_keywords': primary_metrics['num_queries'],
-                'primary_page_clicks': primary_metrics['total_clicks'],
+                'primary_page_indexed_keywords': primary_keywords,
+                'primary_page_clicks': primary_clicks,
                 'secondary_page': secondary,
-                'secondary_page_indexed_keywords': secondary_metrics['num_queries'],
-                'secondary_page_clicks': secondary_metrics['total_clicks'],
+                'secondary_page_indexed_keywords': secondary_keywords,
+                'secondary_page_clicks': secondary_clicks,
                 'similarity_score': similarity,
-                'number_keyword_overlaping': row['overlap_count'],
-                'consolidation_type': consolidation_type,
+                'number_keyword_overlaping': row['common_words'],
+                'consolidation_type': action,
                 'priority': priority
             })
         
         return pd.DataFrame(recommendations)
 
-    def _get_consolidation_type(self, similarity: float, 
-                              secondary: dict, primary: dict) -> str:
-        """Determine consolidation type based on exact criteria"""
-        if similarity >= 90:
-            if secondary['num_queries'] >= 100:
-                return 'Optimize'
-            elif (abs(secondary['total_clicks'] - primary['total_clicks']) < 
-                  (primary['total_clicks'] * 0.2) and
-                  abs(secondary['num_queries'] - primary['num_queries']) < 
-                  (primary['num_queries'] * 0.2)):
-                return 'Merge'
-            elif secondary['total_clicks'] == 0 and secondary['num_queries'] == 0:
-                return 'Remove'
-            elif secondary['total_clicks'] < (primary['total_clicks'] + 
-                                            secondary['total_clicks']) * 0.2:
-                return 'Redirect'
-            else:
-                return 'Redirect'
-        else:
-            return 'Internal Link'
-
-    def _get_priority(self, secondary_clicks: int) -> str:
-        """Determine priority based on traffic"""
-        if secondary_clicks > 1000:
-            return 'High'
-        elif secondary_clicks > 100:
-            return 'Medium'
-        else:
-            return 'Low'
-
     def _create_summary(self, recommendations: pd.DataFrame) -> Dict:
-        """Create summary statistics"""
+        """Create summary"""
         if recommendations.empty:
             return {'total_recommendations': 0}
         
@@ -208,7 +169,6 @@ class EnhancedConsolidationAnalyzer:
             'total_recommendations': len(recommendations),
             'optimize': len(recommendations[recommendations['consolidation_type'] == 'Optimize']),
             'merge': len(recommendations[recommendations['consolidation_type'] == 'Merge']),
-            'remove': len(recommendations[recommendations['consolidation_type'] == 'Remove']),
             'redirect': len(recommendations[recommendations['consolidation_type'] == 'Redirect']),
             'internal_link': len(recommendations[recommendations['consolidation_type'] == 'Internal Link']),
             'high_priority': len(recommendations[recommendations['priority'] == 'High']),
