@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from column_mapper import normalize_column_names, validate_required_columns
-from features.enhanced_consolidation import EnhancedConsolidationAnalyzer
+from features.url_consolidation_analyzer import URLConsolidationAnalyzer
 
 # Page configuration
 st.set_page_config(
@@ -44,9 +44,9 @@ st.markdown("""
 
 # Configuration settings
 DEFAULT_BRAND_VARIANTS = []
-CLICK_PERCENTAGE_THRESHOLD = 0.1  # 10% threshold for cannibalization
-MIN_CLICKS_THRESHOLD = 10         # Minimum clicks to consider
-MIN_IMPRESSIONS_THRESHOLD = 100   # Minimum impressions to consider
+CLICK_PERCENTAGE_THRESHOLD = 0.1
+MIN_CLICKS_THRESHOLD = 10
+MIN_IMPRESSIONS_THRESHOLD = 100
 
 def init_session_state():
     """Initialize session state variables"""
@@ -64,18 +64,15 @@ def init_session_state():
         st.session_state.processed_data = None
     if 'cannibalization_summary' not in st.session_state:
         st.session_state.cannibalization_summary = None
-    if 'consolidation_recommendations' not in st.session_state:
-        st.session_state.consolidation_recommendations = None
+    if 'url_consolidation' not in st.session_state:
+        st.session_state.url_consolidation = None
     if 'cleaning_stats' not in st.session_state:
         st.session_state.cleaning_stats = None
-    if 'enhanced_consolidation' not in st.session_state:
-        st.session_state.enhanced_consolidation = None
 
 def clean_gsc_data(df):
-    """ Clean Google Search Console data by removing invalid entries """
+    """Clean Google Search Console data by removing invalid entries"""
     initial_rows = len(df)
     
-    # Track cleaning stats
     cleaning_stats = {
         'initial_rows': initial_rows,
         'removed_name_errors': 0,
@@ -89,79 +86,61 @@ def clean_gsc_data(df):
         'removed_subdomains': 0
     }
 
-    def remove_branded_keywords(df: pd.DataFrame, variants: list) -> pd.DataFrame:
-        """
-        Remove rows whose query contains any of the given brand name variants.
-        """
+    def remove_branded_keywords(df, variants):
         if not variants:
             return df
         pattern = "|".join([v.lower() for v in variants])
         mask = ~df["query"].str.lower().str.contains(pattern, na=False)
         return df.loc[mask].copy()
 
-    # 1. Remove rows with #NAME? errors in query
     name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
     cleaning_stats['removed_name_errors'] = name_error_mask.sum()
     df = df[~name_error_mask]
     
-    # 2. Remove rows where page doesn't start with https://
     valid_url_mask = df['page'].astype(str).str.startswith('https://')
     cleaning_stats['removed_non_urls'] = (~valid_url_mask).sum()
     df = df[valid_url_mask]
     
-    # 3. Remove URLs with special parameters (?, =) and tracking parameters
     param_mask = df['page'].str.contains(r'[?=&]', case=False, na=False)
     cleaning_stats['removed_with_parameters'] = param_mask.sum()
     df = df[~param_mask]
     
-    # 4. Remove /pages/ subfolder URLs
     pages_mask = df['page'].str.contains(r'/pages/', case=False, na=False)
     cleaning_stats['removed_pages_subfolder'] = pages_mask.sum()
     df = df[~pages_mask]
     
-    # 5. Remove homepage URLs (EXACT homepage only - domain root with optional trailing slash)
     homepage_pattern = r'^https://[^/]+/?$'
     homepage_mask = df['page'].str.contains(homepage_pattern, case=False, na=False)
     cleaning_stats['removed_homepage'] = homepage_mask.sum()
     df = df[~homepage_mask]
     
-    # 6. Remove subdomain URLs (anything that's not www or the main domain)
-    # This specifically excludes subdomains like blog.example.com, shop.example.com
-    # But keeps www.example.com and example.com
     subdomain_mask = df['page'].str.contains(r'^https://(?!www\.)([^.]+)\.[^/]+/', case=False, na=False)
     cleaning_stats['removed_subdomains'] = subdomain_mask.sum()
     df = df[~subdomain_mask]
     
-    # 7. Remove rows with non-English queries
     english_mask = df['query'].astype(str).apply(lambda x: x.isascii())
     cleaning_stats['removed_non_english'] = (~english_mask).sum()
     df = df[english_mask]
     
-    # 8. Remove rows with empty queries or pages
     empty_mask = (df['query'].astype(str).str.strip() == '') | (df['page'].astype(str).str.strip() == '')
     cleaning_stats['removed_empty'] = empty_mask.sum()
     df = df[~empty_mask]
     
-    # 9. Ensure numeric columns are actually numeric
     df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
     df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
     df['position'] = pd.to_numeric(df['position'], errors='coerce')
     
-    # Remove rows with invalid numeric values
     numeric_mask = df['clicks'].notna() & df['impressions'].notna()
     cleaning_stats['removed_invalid_numbers'] = (~numeric_mask).sum()
     df = df[numeric_mask]
     
-    # 10. Additional cleaning: Remove obvious test/spam queries
     spam_patterns = ['test', 'asdf', 'xxx', '123', 'lorem ipsum']
     spam_mask = df['query'].astype(str).str.lower().str.contains('|'.join(spam_patterns), na=False)
     df = df[~spam_mask]
     
-    # 11. Remove queries that are just numbers or single characters
     valid_query_mask = df['query'].astype(str).str.len() > 2
     df = df[valid_query_mask]
     
-    # Calculate total removed
     total_removed = initial_rows - len(df)
     cleaning_stats['final_rows'] = len(df)
     cleaning_stats['total_removed'] = total_removed
@@ -264,37 +243,6 @@ def classify_cannibalization_severity(score):
     else:
         return "Low"
 
-def identify_consolidation_opportunities(df, scores_df):
-    """Identify pages that could be consolidated"""
-    recommendations = []
-    
-    for query in scores_df[scores_df['cannibalization_score'] > 0.4]['query']:
-        query_data = df[df['query'] == query].copy()
-        query_data = query_data.sort_values('clicks', ascending=False)
-        
-        if len(query_data) < 2:
-            continue
-            
-        top_pages = query_data.head(2)
-        
-        total_clicks = query_data['clicks'].sum()
-        top_page_clicks = top_pages.iloc[0]['clicks']
-        second_page_clicks = top_pages.iloc[1]['clicks']
-        
-        if second_page_clicks / total_clicks > 0.2:
-            recommendations.append({
-                'query': query,
-                'primary_page': top_pages.iloc[0]['page'],
-                'primary_page_clicks': top_page_clicks,
-                'secondary_page': top_pages.iloc[1]['page'],
-                'secondary_page_clicks': second_page_clicks,
-                'total_query_clicks': total_clicks,
-                'consolidation_type': 'merge' if second_page_clicks / total_clicks > 0.4 else 'redirect',
-                'priority': 'High' if total_clicks > 100 else 'Medium'
-            })
-    
-    return pd.DataFrame(recommendations)
-
 def run_cannibalization_analysis(df, brand_variants):
     """Main analysis function"""
     df_filtered = remove_branded_keywords(df, brand_variants)
@@ -306,14 +254,11 @@ def run_cannibalization_analysis(df, brand_variants):
     scores_df = calculate_cannibalization_score(df_filtered)
     scores_df['severity'] = scores_df['cannibalization_score'].apply(classify_cannibalization_severity)
     
-    consolidation_df = identify_consolidation_opportunities(df_filtered, scores_df)
-    
-    return df_filtered, scores_df, consolidation_df
+    return df_filtered, scores_df
 
-
-def run_enhanced_consolidation_analysis(df):
-    """Run enhanced URL-level consolidation analysis"""
-    analyzer = EnhancedConsolidationAnalyzer(use_semantic_similarity=False)
+def run_url_consolidation_analysis(df):
+    """Run URL-level consolidation analysis"""
+    analyzer = URLConsolidationAnalyzer()
     return analyzer.analyze_url_consolidation(df)
 
 def main():
@@ -323,7 +268,6 @@ def main():
     st.title("🔍 SEO Cannibalization Analysis Tool")
     st.markdown("Identify and fix keyword cannibalization issues using Google Search Console data")
     
-    # Create sidebar for data upload and configuration
     with st.sidebar:
         st.markdown("### 📊 Data Upload")
         st.markdown("Upload your Google Search Console CSV export")
@@ -351,7 +295,7 @@ def main():
                 try:
                     df = pd.read_csv(uploaded_file, delimiter=delimiter, on_bad_lines='skip')
                     st.success("✓ File loaded successfully")
-                except Exception as e:
+                except Exception:
                     uploaded_file.seek(0)
                     df = pd.read_csv(uploaded_file, on_bad_lines='skip')
                 
@@ -383,7 +327,7 @@ def main():
                 brand_input = st.text_area(
                     "Brand variants",
                     value="\n".join(st.session_state.brand_variants),
-                    height=70,  # Reduced from 100 to ~30% smaller
+                    height=70,
                     help="One per line"
                 )
                 
@@ -392,14 +336,16 @@ def main():
                 
                 if st.button("🔬 Run Analysis", type="primary", use_container_width=True):
                     with st.spinner("Analyzing data..."):
-                        processed_data, scores, recommendations = run_cannibalization_analysis(
+                        processed_data, scores = run_cannibalization_analysis(
                             df, 
                             st.session_state.brand_variants
                         )
                         
+                        url_consolidation = run_url_consolidation_analysis(df)
+                        
                         st.session_state.processed_data = processed_data
                         st.session_state.cannibalization_summary = scores
-                        st.session_state.consolidation_recommendations = recommendations
+                        st.session_state.url_consolidation = url_consolidation
                         st.session_state.analysis_complete = True
                         
                         st.success("✅ Analysis complete!")
@@ -410,7 +356,7 @@ def main():
                 st.info("Please check your CSV format and try again.")
     
     # Main content area with tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📈 Analysis Results", "🔗 URL Consolidation"])
+    tab1, tab2 = st.tabs(["📊 Dashboard", "🔗 URL Consolidation Analysis"])
     
     with tab1:
         st.markdown("### 📊 Main Dashboard")
@@ -465,196 +411,75 @@ def main():
             st.dataframe(df.head(100), use_container_width=True, height=300)
     
     with tab2:
-        st.markdown("### 📈 Analysis Results")
+        st.markdown("### 🔗 URL Consolidation Analysis")
         
         if not st.session_state.analysis_complete:
             st.warning("⚠️ Please run analysis from the sidebar first!")
         else:
-            scores_df = st.session_state.cannibalization_summary
-            recommendations = st.session_state.consolidation_recommendations
-            
-            # Download button at the top
-            export_data = scores_df.merge(
-                st.session_state.processed_data.groupby('query').agg({
-                    'page': lambda x: ' | '.join(x),
-                    'clicks': 'sum',
-                    'impressions': 'sum'
-                }).reset_index(),
-                on='query',
-                how='left'
-            )
-            
-            csv = export_data.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Analysis Results",
-                data=csv,
-                file_name=f"cannibalization_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            
-            st.markdown("---")
-            
-            # Analysis Results section
-            st.markdown("### Analysis Results")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                total_queries = len(scores_df)
-                st.metric("Total Cannibalized Queries", total_queries)
-            with col2:
-                high_severity = len(scores_df[scores_df['severity'] == 'High'])
-                st.metric("High Severity", high_severity)
-            with col3:
-                total_clicks_affected = scores_df['total_clicks'].sum()
-                st.metric("Total Clicks Affected", f"{total_clicks_affected:,}")
-            
-            # Consolidation Recommendations section
-            st.markdown("### Consolidation Recommendations")
-            
-            if len(recommendations) > 0:
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    total_recs = len(recommendations)
-                    st.metric("Total Recommendations", total_recs)
-                with col2:
-                    high_priority = len(recommendations[recommendations['priority'] == 'High'])
-                    st.metric("High Priority", high_priority)
-                with col3:
-                    potential_clicks = recommendations['total_query_clicks'].sum()
-                    st.metric("Total Clicks at Stake", f"{potential_clicks:,}")
-                
-                # Download recommendations button
-                recs_csv = recommendations.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Recommendations",
-                    data=recs_csv,
-                    file_name=f"consolidation_recommendations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-                
-                st.markdown("---")
-                
-                # Display recommendations data
-                st.dataframe(
-                    recommendations[['query', 'primary_page', 'secondary_page', 'total_query_clicks', 'priority', 'consolidation_type']],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("No consolidation opportunities found.")
-            
-            # Detailed query analysis
-            st.markdown("### Detailed Query Analysis")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                severity_filter = st.multiselect(
-                    "Filter by Severity",
-                    options=['High', 'Medium', 'Low'],
-                    default=['High', 'Medium'],
-                    key="severity_filter"
-                )
-            with col2:
-                min_clicks = st.number_input(
-                    "Minimum Clicks",
-                    min_value=0,
-                    value=10,
-                    step=10,
-                    key="min_clicks"
-                )
-            with col3:
-                sort_by = st.selectbox(
-                    "Sort by",
-                    options=['cannibalization_score', 'total_clicks', 'total_impressions', 'num_pages'],
-                    index=0,
-                    key="sort_by"
-                )
-            
-            filtered_scores = scores_df[
-                (scores_df['severity'].isin(severity_filter)) &
-                (scores_df['total_clicks'] >= min_clicks)
-            ].sort_values(sort_by, ascending=False)
-            
-            st.dataframe(
-                filtered_scores[['query', 'severity', 'cannibalization_score', 'num_pages', 'total_clicks', 'total_impressions']],
-                use_container_width=True,
-                hide_index=True
-            )
-
-    with tab3:
-        st.markdown("### 🔗 URL-Level Consolidation Analysis")
-        
-        if not st.session_state.analysis_complete:
-            st.warning("⚠️ Please run analysis from the sidebar first!")
-        else:
-            # Run enhanced URL-level analysis
-            if st.session_state.enhanced_consolidation is None:
-                with st.spinner("Running URL-level consolidation analysis..."):
-                    enhanced_results = run_enhanced_consolidation_analysis(st.session_state.gsc_data)
-                    st.session_state.enhanced_consolidation = enhanced_results
-            
-            enhanced_results = st.session_state.enhanced_consolidation
-            recommendations = enhanced_results['consolidation_recommendations']
-            summary = enhanced_results['summary']
+            url_consolidation = st.session_state.url_consolidation
+            recommendations = url_consolidation['recommendations']
+            summary = url_consolidation['summary']
             
             if len(recommendations) > 0:
                 # Summary metrics
                 st.markdown("### 📊 URL Consolidation Summary")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total URL Pairs", summary['total_recommendations'])
-                with col2:
-                    st.metric("High Priority", summary['high_priority'])
-                with col3:
-                    st.metric("Medium Priority", summary['medium_priority'])
-                with col4:
-                    st.metric("Potential Recovery", f"{summary['total_potential_recovery']:,}")
                 
-                # Recommendation types
-                st.markdown("### 📋 Recommendation Breakdown")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Merge & Redirect", summary['merge_and_redirect'])
+                    st.metric("Total URL Pairs", summary['total_pairs'])
                 with col2:
-                    st.metric("Redirect Secondary", summary['redirect_secondary'])
+                    st.metric("Total Potential Recovery", f"{summary['total_potential_recovery']:,}")
                 with col3:
-                    st.metric("Evaluate Merge", summary['evaluate_content_merge'])
+                    high_priority = summary['priorities'].get('High', 0)
+                    st.metric("High Priority", high_priority)
                 with col4:
-                    st.metric("Monitor", summary['monitor_and_optimize'])
+                    medium_priority = summary['priorities'].get('Medium', 0)
+                    st.metric("Medium Priority", medium_priority)
+                
+                # Action breakdown
+                st.markdown("### 📋 Action Breakdown")
+                
+                actions = summary['actions']
+                if actions:
+                    cols = st.columns(len(actions))
+                    for idx, (action, count) in enumerate(actions.items()):
+                        with cols[idx]:
+                            st.metric(action, count)
                 
                 # Filter controls
                 st.markdown("### 🔍 Filter URL Recommendations")
+                
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    priority_filter = st.multiselect(
-                        "Priority",
-                        options=['high', 'medium', 'low'],
-                        default=['high', 'medium'],
-                        key="url_priority_filter"
+                    action_filter = st.multiselect(
+                        "Action",
+                        options=['Merge', 'Redirect', 'Optimize', 'Internal Link', 'Monitor', 'Remove', 'False Positive'],
+                        default=['Merge', 'Redirect', 'Optimize', 'Internal Link'],
+                        key="action_filter"
                     )
                 with col2:
                     min_recovery = st.number_input(
                         "Min Potential Recovery",
                         min_value=0,
-                        value=50,
-                        step=10,
-                        key="url_min_recovery"
+                        value=10,
+                        step=5,
+                        key="min_recovery"
                     )
                 with col3:
                     min_overlap = st.number_input(
                         "Min Keyword Overlap %",
                         min_value=0,
                         max_value=100,
-                        value=30,
-                        step=5,
-                        key="url_min_overlap"
+                        value=5,
+                        step=1,
+                        key="min_overlap"
                     )
                 
                 # Filter recommendations
                 filtered_recs = recommendations[
-                    (recommendations['priority'].str.lower().isin(priority_filter)) &
-                    (recommendations['potential_traffic_recovery'] >= min_recovery) &
-                    (recommendations['keyword_overlap_percentage_primary'] >= min_overlap)
+                    (recommendations['action'].isin(action_filter)) &
+                    (recommendations['potential_recovery'] >= min_recovery) &
+                    (recommendations['keyword_overlap_percentage'] >= min_overlap)
                 ]
                 
                 if len(filtered_recs) > 0:
@@ -671,35 +496,42 @@ def main():
                     
                     # Display recommendations
                     display_cols = [
-                        'primary_page', 'primary_page_indexed_keywords', 'primary_page_clicks',
-                        'secondary_page', 'secondary_page_indexed_keywords', 'secondary_page_clicks',
-                        'similarity_score', 'number_keyword_overlaping', 'consolidation_type', 'priority'
+                        'primary_url', 'secondary_url', 'action', 'priority',
+                        'keyword_overlap_count', 'keyword_overlap_percentage',
+                        'semantic_similarity', 'primary_clicks', 'secondary_clicks',
+                        'potential_recovery', 'shared_keywords'
                     ]
                     
                     st.dataframe(
-                        filtered_recs[display_cols].sort_values('similarity_score', ascending=False),
+                        filtered_recs[display_cols].sort_values('potential_recovery', ascending=False),
                         use_container_width=True,
                         hide_index=True
                     )
                     
                     # Individual recommendation details
                     st.markdown("### 🔍 Individual URL Recommendations")
-                    for idx, rec in filtered_recs.head(5).iterrows():
-                        with st.expander(f"🔗 {rec['primary_page']} ← {rec['secondary_page']}"):
+                    for idx, rec in filtered_recs.head(10).iterrows():
+                        with st.expander(f"🔗 {rec['action']}: {rec['primary_url']} ← {rec['secondary_url']}"):
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.metric("Primary Keywords", rec['primary_page_indexed_keywords'])
-                                st.metric("Secondary Keywords", rec['secondary_page_indexed_keywords'])
-                                st.metric("Overlap Keywords", rec['number_keyword_overlaping'])
+                                st.metric("Primary Clicks", rec['primary_clicks'])
+                                st.metric("Secondary Clicks", rec['secondary_clicks'])
+                                st.metric("Potential Recovery", rec['potential_recovery'])
                             with col2:
-                                st.metric("Primary Clicks", rec['primary_page_clicks'])
-                                st.metric("Secondary Clicks", rec['secondary_page_clicks'])
-                                st.metric("Similarity Score", f"{rec['similarity_score']}%")
+                                st.metric("Keyword Overlap", f"{rec['keyword_overlap_count']} keywords")
+                                st.metric("Overlap %", f"{rec['keyword_overlap_percentage']}%")
+                                st.metric("Semantic Similarity", f"{rec['semantic_similarity']}%")
                             
-                            st.info(f"**Consolidation Type:** {rec['consolidation_type']}")
+                            st.info(f"**Action:** {rec['action']}")
                             st.info(f"**Priority:** {rec['priority']}")
+                            
+                            if len(rec['shared_keywords']) > 0:
+                                st.write("**Shared Keywords:**")
+                                st.write(", ".join(rec['shared_keywords'][:10]))
+                                if len(rec['shared_keywords']) > 10:
+                                    st.write(f"... and {len(rec['shared_keywords']) - 10} more")
                 else:
-                    st.info("No URL recommendations match the current filters.")
+                    st.info("No URL recommendations match the current filters. Try adjusting the filters.")
             else:
                 st.info("No URL consolidation opportunities found.")
 
