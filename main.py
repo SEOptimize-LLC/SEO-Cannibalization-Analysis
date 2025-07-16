@@ -66,6 +66,8 @@ def init_session_state():
         st.session_state.cannibalization_summary = None
     if 'url_consolidation' not in st.session_state:
         st.session_state.url_consolidation = None
+    if 'embeddings_data' not in st.session_state:
+        st.session_state.embeddings_data = None
     if 'cleaning_stats' not in st.session_state:
         st.session_state.cleaning_stats = None
 
@@ -256,10 +258,10 @@ def run_cannibalization_analysis(df, brand_variants):
     
     return df_filtered, scores_df
 
-def run_url_consolidation_analysis(df):
+def run_url_consolidation_analysis(df, embeddings_df=None):
     """Run URL-level consolidation analysis"""
     analyzer = URLConsolidationAnalyzer()
-    return analyzer.analyze_url_consolidation(df)
+    return analyzer.analyze_url_consolidation(df, embeddings_df)
 
 def main():
     """Main application function"""
@@ -272,10 +274,18 @@ def main():
         st.markdown("### 📊 Data Upload")
         st.markdown("Upload your Google Search Console CSV export")
         
+        # GSC Data Upload
         uploaded_file = st.file_uploader(
-            "Choose a CSV file", 
+            "Choose GSC CSV file", 
             type=['csv'],
             help="Select your Google Search Console export file"
+        )
+        
+        # Embeddings Upload (Optional)
+        embeddings_file = st.file_uploader(
+            "Choose embeddings CSV file (optional)",
+            type=['csv'],
+            help="Upload URL embeddings for enhanced semantic similarity analysis"
         )
         
         if uploaded_file is not None:
@@ -294,7 +304,7 @@ def main():
                 
                 try:
                     df = pd.read_csv(uploaded_file, delimiter=delimiter, on_bad_lines='skip')
-                    st.success("✓ File loaded successfully")
+                    st.success("✓ GSC file loaded successfully")
                 except Exception:
                     uploaded_file.seek(0)
                     df = pd.read_csv(uploaded_file, on_bad_lines='skip')
@@ -314,12 +324,27 @@ def main():
                     st.info("Columns: " + ", ".join(df.columns))
                     return
                 
+                # Process embeddings file if provided
+                embeddings_df = None
+                if embeddings_file is not None:
+                    try:
+                        embeddings_df = pd.read_csv(embeddings_file)
+                        st.success("✓ Embeddings file loaded successfully")
+                        
+                        # Show embeddings info
+                        st.info(f"📊 Embeddings: {len(embeddings_df)} URLs, {len(embeddings_df.columns)-1} dimensions")
+                        
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not load embeddings: {str(e)}")
+                        embeddings_df = None
+                
                 with st.spinner("🧹 Cleaning data..."):
                     df, cleaning_stats = clean_gsc_data(df)
                 
                 st.session_state['gsc_data'] = df
                 st.session_state['data_loaded'] = True
                 st.session_state['cleaning_stats'] = cleaning_stats
+                st.session_state['embeddings_data'] = embeddings_df
                 
                 st.markdown("### 🏷️ Brand Configuration")
                 st.markdown("Enter brand name variations to exclude:")
@@ -341,7 +366,10 @@ def main():
                             st.session_state.brand_variants
                         )
                         
-                        url_consolidation = run_url_consolidation_analysis(df)
+                        url_consolidation = run_url_consolidation_analysis(
+                            df, 
+                            embeddings_df
+                        )
                         
                         st.session_state.processed_data = processed_data
                         st.session_state.cannibalization_summary = scores
@@ -364,8 +392,8 @@ def main():
         if not st.session_state.data_loaded:
             st.info("👈 Please upload data using the sidebar to begin analysis")
         else:
-            df = st.session_state.gsc_data
-            cleaning_stats = st.session_state.cleaning_stats
+            df = st.session_state['gsc_data']
+            cleaning_stats = st.session_state['cleaning_stats']
             
             # Data overview metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -377,6 +405,12 @@ def main():
                 st.metric("Unique Queries", f"{df['query'].nunique():,}")
             with col4:
                 st.metric("Total Clicks", f"{df['clicks'].sum():,}")
+            
+            # Show embeddings status
+            if st.session_state.embeddings_data is not None:
+                st.success("✅ Enhanced semantic analysis enabled with embeddings")
+            else:
+                st.info("ℹ️ Using basic semantic analysis (upload embeddings for enhanced analysis)")
             
             # Cleaning results
             if cleaning_stats and cleaning_stats['total_removed'] > 0:
@@ -419,6 +453,13 @@ def main():
             url_consolidation = st.session_state.url_consolidation
             recommendations = url_consolidation['recommendations']
             summary = url_consolidation['summary']
+            embeddings_used = url_consolidation['embeddings_used']
+            
+            # Show analysis type
+            if embeddings_used:
+                st.success("✅ Enhanced semantic analysis with embeddings")
+            else:
+                st.info("ℹ️ Basic semantic analysis (upload embeddings for enhanced results)")
             
             if len(recommendations) > 0:
                 # Summary metrics
@@ -441,10 +482,11 @@ def main():
                 
                 actions = summary['actions']
                 if actions:
-                    cols = st.columns(len(actions))
+                    cols = st.columns(min(len(actions), 4))
                     for idx, (action, count) in enumerate(actions.items()):
-                        with cols[idx]:
-                            st.metric(action, count)
+                        if idx < len(cols):
+                            with cols[idx]:
+                                st.metric(action, count)
                 
                 # Filter controls
                 st.markdown("### 🔍 Filter URL Recommendations")
