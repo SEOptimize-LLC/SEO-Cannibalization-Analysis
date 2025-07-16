@@ -3,12 +3,7 @@ Streamlined single-page application for keyword cannibalization detection """
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 from datetime import datetime
-import json
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from column_mapper import normalize_column_names, validate_required_columns
 from features.enhanced_consolidation import EnhancedConsolidationAnalyzer
 
@@ -657,7 +652,7 @@ def main():
                 
                 # Filter recommendations
                 filtered_recs = recommendations[
-                    (recommendations['priority'].isin(priority_filter)) &
+                    (recommendations['priority'].str.lower().isin(priority_filter)) &
                     (recommendations['potential_traffic_recovery'] >= min_recovery) &
                     (recommendations['keyword_overlap_percentage_primary'] >= min_overlap)
                 ]
