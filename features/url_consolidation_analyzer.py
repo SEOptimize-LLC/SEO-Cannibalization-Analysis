@@ -71,22 +71,50 @@ class URLConsolidationAnalyzer:
         return url_metrics
     
     def _calculate_keyword_overlap(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate keyword overlap between URL pairs"""
-        # Create URL-query mapping
+        """Calculate keyword overlap between URL pairs - optimized version"""
+        # Create URL-query mapping with performance filtering
         url_queries = df.groupby('page')['query'].apply(set).to_dict()
+        url_clicks = df.groupby('page')['clicks'].sum().to_dict()
         
-        # Calculate overlap for all URL pairs
+        # Filter URLs with significant traffic to reduce pairs
+        min_clicks_threshold = 5
+        significant_urls = [url for url, clicks in url_clicks.items() if clicks >= min_clicks_threshold]
+        
+        if len(significant_urls) < 2:
+            # If not enough significant URLs, use top URLs by clicks
+            top_urls = sorted(url_clicks.items(), key=lambda x: x[1], reverse=True)[:50]
+            significant_urls = [url for url, _ in top_urls]
+        
+        # Limit to prevent excessive computation
+        max_urls = 100
+        if len(significant_urls) > max_urls:
+            significant_urls = significant_urls[:max_urls]
+        
+        # Pre-calculate query performance for efficiency
+        query_performance = df.groupby(['query', 'page']).agg({
+            'clicks': 'sum',
+            'impressions': 'sum'
+        }).reset_index()
+        
         overlap_data = []
-        urls = list(url_queries.keys())
         
-        for i, url1 in enumerate(urls):
-            for url2 in urls[i+1:]:
-                queries1 = url_queries[url1]
-                queries2 = url_queries[url2]
+        # Use efficient set operations
+        for i, url1 in enumerate(significant_urls):
+            queries1 = url_queries[url1]
+            if not queries1:
+                continue
                 
-                # Calculate overlap metrics
-                intersection = queries1.intersection(queries2)
-                union = queries1.union(queries2)
+            for url2 in significant_urls[i+1:]:
+                queries2 = url_queries[url2]
+                if not queries2:
+                    continue
+                
+                # Calculate overlap efficiently
+                intersection = queries1 & queries2
+                if len(intersection) == 0:
+                    continue
+                
+                union = queries1 | queries2
                 
                 overlap_count = len(intersection)
                 total_queries1 = len(queries1)
@@ -96,27 +124,29 @@ class URLConsolidationAnalyzer:
                 overlap_percentage2 = (overlap_count / total_queries2 * 100) if total_queries2 > 0 else 0
                 jaccard_similarity = (len(intersection) / len(union) * 100) if len(union) > 0 else 0
                 
-                # Calculate combined performance for overlapping queries
-                overlap_queries_df = df[df['query'].isin(intersection)]
-                url1_overlap = overlap_queries_df[overlap_queries_df['page'] == url1]
-                url2_overlap = overlap_queries_df[overlap_queries_df['page'] == url2]
+                # Calculate combined performance efficiently
+                overlap_mask = query_performance['query'].isin(intersection)
+                url1_mask = overlap_mask & (query_performance['page'] == url1)
+                url2_mask = overlap_mask & (query_performance['page'] == url2)
                 
-                combined_clicks = url1_overlap['clicks'].sum() + url2_overlap['clicks'].sum()
-                combined_impressions = url1_overlap['impressions'].sum() + url2_overlap['impressions'].sum()
+                combined_clicks = query_performance.loc[url1_mask, 'clicks'].sum() + query_performance.loc[url2_mask, 'clicks'].sum()
+                combined_impressions = query_performance.loc[url1_mask, 'impressions'].sum() + query_performance.loc[url2_mask, 'impressions'].sum()
                 
-                overlap_data.append({
-                    'url1': url1,
-                    'url2': url2,
-                    'overlap_queries': list(intersection),
-                    'overlap_count': overlap_count,
-                    'url1_total_queries': total_queries1,
-                    'url2_total_queries': total_queries2,
-                    'overlap_percentage_url1': round(overlap_percentage1, 2),
-                    'overlap_percentage_url2': round(overlap_percentage2, 2),
-                    'jaccard_similarity': round(jaccard_similarity, 2),
-                    'combined_overlap_clicks': combined_clicks,
-                    'combined_overlap_impressions': combined_impressions
-                })
+                # Only include pairs with meaningful overlap
+                if jaccard_similarity >= 5:  # Minimum 5% overlap
+                    overlap_data.append({
+                        'url1': url1,
+                        'url2': url2,
+                        'overlap_queries': list(intersection),
+                        'overlap_count': overlap_count,
+                        'url1_total_queries': total_queries1,
+                        'url2_total_queries': total_queries2,
+                        'overlap_percentage_url1': round(overlap_percentage1, 2),
+                        'overlap_percentage_url2': round(overlap_percentage2, 2),
+                        'jaccard_similarity': round(jaccard_similarity, 2),
+                        'combined_overlap_clicks': combined_clicks,
+                        'combined_overlap_impressions': combined_impressions
+                    })
         
         return pd.DataFrame(overlap_data)
     
