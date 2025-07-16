@@ -1,27 +1,25 @@
 """
 Enhanced Consolidation Analysis Module
-Similarity-first approach using proven fast processing
+Fixed constructor for seamless integration
 """
 
 import pandas as pd
-import numpy as np
-from typing import Dict, List
-import re
-from collections import Counter
+from typing import Dict
 
 
 class EnhancedConsolidationAnalyzer:
-    """Fast similarity-based consolidation analysis"""
+    """Fixed consolidation analysis"""
 
-    def __init__(self, max_urls: int = 1000, similarity_threshold: float = 0.85):
+    def __init__(self, use_semantic_similarity: bool = False, max_urls: int = 1000):
+        self.use_semantic_similarity = use_semantic_similarity
         self.max_urls = max_urls
-        self.similarity_threshold = similarity_threshold
+        self.similarity_threshold = 0.85
 
     def analyze_url_consolidation(self, df: pd.DataFrame) -> Dict:
-        """Fast similarity-based analysis"""
+        """Fixed analysis method"""
         print(f"Processing {len(df)} rows...")
         
-        # Step 1: Fast URL consolidation
+        # Step 1: Fast consolidation
         url_consolidated = self._fast_consolidate(df)
         print(f"Consolidated to {len(url_consolidated)} URLs")
         
@@ -30,7 +28,7 @@ class EnhancedConsolidationAnalyzer:
             url_consolidated = url_consolidated.head(self.max_urls)
             print(f"Limited to top {self.max_urls} URLs")
         
-        # Step 3: Ultra-fast similarity calculation
+        # Step 3: Fast similarity calculation
         similarity_matrix = self._calculate_similarity_fast(url_consolidated)
         print(f"Found {len(similarity_matrix)} similar pairs")
         
@@ -41,15 +39,15 @@ class EnhancedConsolidationAnalyzer:
         
         return {
             'url_metrics': url_consolidated,
-            'similarity_matrix': similarity_matrix,
+            'keyword_overlap': similarity_matrix,  # Keep same key for compatibility
             'consolidation_recommendations': recommendations,
             'summary': self._create_summary(recommendations)
         }
 
     def _fast_consolidate(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Ultra-fast URL consolidation"""
+        """Fast URL consolidation"""
         return df.groupby('page').agg({
-            'query': lambda x: ' '.join(set(x)),  # Join queries for similarity
+            'query': lambda x: ' '.join(set(x)),
             'clicks': 'sum',
             'impressions': 'sum'
         }).reset_index().rename(columns={
@@ -59,14 +57,11 @@ class EnhancedConsolidationAnalyzer:
         })
 
     def _calculate_similarity_fast(self, url_df: pd.DataFrame) -> pd.DataFrame:
-        """Ultra-fast similarity using simple text comparison"""
-        # Create query text mapping
+        """Fast similarity calculation"""
         url_queries = dict(zip(url_df['page'], url_df['query_text']))
-        
         results = []
         urls = list(url_queries.keys())
         
-        # Fast similarity calculation
         for i, url1 in enumerate(urls):
             text1 = url_queries[url1].lower()
             words1 = set(text1.split())
@@ -75,7 +70,6 @@ class EnhancedConsolidationAnalyzer:
                 text2 = url_queries[url2].lower()
                 words2 = set(text2.split())
                 
-                # Fast Jaccard similarity
                 intersection = words1 & words2
                 union = words1 | words2
                 
@@ -84,7 +78,6 @@ class EnhancedConsolidationAnalyzer:
                 
                 similarity = len(intersection) / len(union)
                 
-                # Only include high similarity pairs
                 if similarity >= self.similarity_threshold:
                     results.append({
                         'url1': url1,
@@ -98,11 +91,10 @@ class EnhancedConsolidationAnalyzer:
 
     def _generate_recommendations(self, url_df: pd.DataFrame, 
                                 similarity_df: pd.DataFrame) -> pd.DataFrame:
-        """Generate recommendations from similarity"""
+        """Generate recommendations"""
         if similarity_df.empty:
             return pd.DataFrame()
         
-        # Create lookup
         url_lookup = url_df.set_index('page')[
             ['total_clicks', 'total_impressions', 'query_text']
         ].to_dict('index')
@@ -112,15 +104,11 @@ class EnhancedConsolidationAnalyzer:
         for _, row in similarity_df.iterrows():
             url1, url2 = row['url1'], row['url2']
             
-            # Get metrics
             clicks1 = url_lookup[url1]['total_clicks']
             clicks2 = url_lookup[url2]['total_clicks']
-            
-            # Count keywords (approximate)
             keywords1 = len(url_lookup[url1]['query_text'].split())
             keywords2 = len(url_lookup[url2]['query_text'].split())
             
-            # Determine primary/secondary
             if clicks1 >= clicks2:
                 primary, secondary = url1, url2
                 primary_clicks, secondary_clicks = clicks1, clicks2
@@ -130,7 +118,6 @@ class EnhancedConsolidationAnalyzer:
                 primary_clicks, secondary_clicks = clicks2, clicks1
                 primary_keywords, secondary_keywords = keywords2, keywords1
             
-            # Simple consolidation logic
             similarity = row['similarity_score']
             if similarity >= 0.9:
                 if secondary_keywords >= 100:
