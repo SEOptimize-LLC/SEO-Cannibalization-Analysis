@@ -148,12 +148,27 @@ class EnhancedConsolidationAnalyzer:
         return pd.DataFrame(recommendations)
 
     def _create_summary(self, recommendations: pd.DataFrame) -> Dict:
-        """Create summary"""
+        """Create summary with expected keys"""
         if recommendations.empty:
-            return {'total_recommendations': 0}
+            return {
+                'total_recommendations': 0,
+                'total_potential_recovery': 0,
+                'average_confidence': 0,
+                'high_priority': 0,
+                'medium_priority': 0,
+                'low_priority': 0
+            }
+        
+        # Calculate potential recovery (estimate 70% of secondary URL clicks)
+        potential_recovery = 0
+        for _, row in recommendations.iterrows():
+            if row['consolidation_type'] in ['Redirect', 'Merge', 'Optimize']:
+                potential_recovery += int(row['secondary_page_clicks'] * 0.7)
         
         return {
             'total_recommendations': len(recommendations),
+            'total_potential_recovery': potential_recovery,
+            'average_confidence': 85.0,  # Fixed confidence for similarity-based
             'optimize': len(recommendations[recommendations['consolidation_type'] == 'Optimize']),
             'merge': len(recommendations[recommendations['consolidation_type'] == 'Merge']),
             'redirect': len(recommendations[recommendations['consolidation_type'] == 'Redirect']),
