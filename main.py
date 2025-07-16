@@ -9,7 +9,8 @@ import json
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from column_mapper import normalize_column_names, validate_required_columns, prepare_gsc_data
+from column_mapper import normalize_column_names, validate_required_columns
+from features.enhanced_consolidation import EnhancedConsolidationAnalyzer
 
 # Page configuration
 st.set_page_config(
@@ -72,6 +73,8 @@ def init_session_state():
         st.session_state.consolidation_recommendations = None
     if 'cleaning_stats' not in st.session_state:
         st.session_state.cleaning_stats = None
+    if 'enhanced_consolidation' not in st.session_state:
+        st.session_state.enhanced_consolidation = None
 
 def clean_gsc_data(df):
     """ Clean Google Search Console data by removing invalid entries """
@@ -312,6 +315,12 @@ def run_cannibalization_analysis(df, brand_variants):
     
     return df_filtered, scores_df, consolidation_df
 
+
+def run_enhanced_consolidation_analysis(df):
+    """Run enhanced URL-level consolidation analysis"""
+    analyzer = EnhancedConsolidationAnalyzer(use_semantic_similarity=False)
+    return analyzer.analyze_url_consolidation(df)
+
 def main():
     """Main application function"""
     init_session_state()
@@ -406,7 +415,7 @@ def main():
                 st.info("Please check your CSV format and try again.")
     
     # Main content area with tabs
-    tab1, tab2 = st.tabs(["📊 Dashboard", "📈 Analysis Results"])
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📈 Analysis Results", "🔗 URL Consolidation"])
     
     with tab1:
         st.markdown("### 📊 Main Dashboard")
@@ -576,6 +585,128 @@ def main():
                 use_container_width=True,
                 hide_index=True
             )
+
+    with tab3:
+        st.markdown("### 🔗 URL-Level Consolidation Analysis")
+        
+        if not st.session_state.analysis_complete:
+            st.warning("⚠️ Please run analysis from the sidebar first!")
+        else:
+            # Run enhanced URL-level analysis
+            if st.session_state.enhanced_consolidation is None:
+                with st.spinner("Running URL-level consolidation analysis..."):
+                    enhanced_results = run_enhanced_consolidation_analysis(st.session_state.gsc_data)
+                    st.session_state.enhanced_consolidation = enhanced_results
+            
+            enhanced_results = st.session_state.enhanced_consolidation
+            recommendations = enhanced_results['consolidation_recommendations']
+            summary = enhanced_results['summary']
+            
+            if len(recommendations) > 0:
+                # Summary metrics
+                st.markdown("### 📊 URL Consolidation Summary")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total URL Pairs", summary['total_recommendations'])
+                with col2:
+                    st.metric("High Priority", summary['high_priority'])
+                with col3:
+                    st.metric("Medium Priority", summary['medium_priority'])
+                with col4:
+                    st.metric("Potential Recovery", f"{summary['total_potential_recovery']:,}")
+                
+                # Recommendation types
+                st.markdown("### 📋 Recommendation Breakdown")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Merge & Redirect", summary['merge_and_redirect'])
+                with col2:
+                    st.metric("Redirect Secondary", summary['redirect_secondary'])
+                with col3:
+                    st.metric("Evaluate Merge", summary['evaluate_content_merge'])
+                with col4:
+                    st.metric("Monitor", summary['monitor_and_optimize'])
+                
+                # Filter controls
+                st.markdown("### 🔍 Filter URL Recommendations")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    priority_filter = st.multiselect(
+                        "Priority",
+                        options=['high', 'medium', 'low'],
+                        default=['high', 'medium'],
+                        key="url_priority_filter"
+                    )
+                with col2:
+                    min_recovery = st.number_input(
+                        "Min Potential Recovery",
+                        min_value=0,
+                        value=50,
+                        step=10,
+                        key="url_min_recovery"
+                    )
+                with col3:
+                    min_overlap = st.number_input(
+                        "Min Keyword Overlap %",
+                        min_value=0,
+                        max_value=100,
+                        value=30,
+                        step=5,
+                        key="url_min_overlap"
+                    )
+                
+                # Filter recommendations
+                filtered_recs = recommendations[
+                    (recommendations['priority'].isin(priority_filter)) &
+                    (recommendations['potential_traffic_recovery'] >= min_recovery) &
+                    (recommendations['keyword_overlap_percentage_primary'] >= min_overlap)
+                ]
+                
+                if len(filtered_recs) > 0:
+                    st.markdown("### 📊 Detailed URL Recommendations")
+                    
+                    # Download button
+                    csv = filtered_recs.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download URL Recommendations",
+                        data=csv,
+                        file_name=f"url_consolidation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                    
+                    # Display recommendations
+                    display_cols = [
+                        'primary_page', 'primary_page_indexed_keywords', 'primary_page_clicks',
+                        'secondary_page', 'secondary_page_indexed_keywords', 'secondary_page_clicks',
+                        'similarity_score', 'number_keyword_overlaping', 'consolidation_type', 'priority'
+                    ]
+                    
+                    st.dataframe(
+                        filtered_recs[display_cols].sort_values('similarity_score', ascending=False),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Individual recommendation details
+                    st.markdown("### 🔍 Individual URL Recommendations")
+                    for idx, rec in filtered_recs.head(5).iterrows():
+                        with st.expander(f"🔗 {rec['primary_page']} ← {rec['secondary_page']}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Primary Keywords", rec['primary_page_indexed_keywords'])
+                                st.metric("Secondary Keywords", rec['secondary_page_indexed_keywords'])
+                                st.metric("Overlap Keywords", rec['number_keyword_overlaping'])
+                            with col2:
+                                st.metric("Primary Clicks", rec['primary_page_clicks'])
+                                st.metric("Secondary Clicks", rec['secondary_page_clicks'])
+                                st.metric("Similarity Score", f"{rec['similarity_score']}%")
+                            
+                            st.info(f"**Consolidation Type:** {rec['consolidation_type']}")
+                            st.info(f"**Priority:** {rec['priority']}")
+                else:
+                    st.info("No URL recommendations match the current filters.")
+            else:
+                st.info("No URL consolidation opportunities found.")
 
 if __name__ == "__main__":
     main()
