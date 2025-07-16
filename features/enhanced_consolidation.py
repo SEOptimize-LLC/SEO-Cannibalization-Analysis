@@ -148,7 +148,7 @@ class EnhancedConsolidationAnalyzer:
         return pd.DataFrame(recommendations)
 
     def _create_summary(self, recommendations: pd.DataFrame) -> Dict:
-        """Create summary with expected keys"""
+        """Create summary with keys matching main.py expectations"""
         if recommendations.empty:
             return {
                 'total_recommendations': 0,
@@ -156,7 +156,11 @@ class EnhancedConsolidationAnalyzer:
                 'average_confidence': 0,
                 'high_priority': 0,
                 'medium_priority': 0,
-                'low_priority': 0
+                'low_priority': 0,
+                'merge_and_redirect': 0,
+                'redirect_secondary': 0,
+                'evaluate_content_merge': 0,
+                'monitor_and_optimize': 0
             }
         
         # Calculate potential recovery (estimate 70% of secondary URL clicks)
@@ -165,15 +169,26 @@ class EnhancedConsolidationAnalyzer:
             if row['consolidation_type'] in ['Redirect', 'Merge', 'Optimize']:
                 potential_recovery += int(row['secondary_page_clicks'] * 0.7)
         
-        return {
+        # Map our consolidation types to main.py expected keys
+        consolidation_mapping = {
+            'Optimize': 'merge_and_redirect',
+            'Merge': 'merge_and_redirect', 
+            'Redirect': 'redirect_secondary',
+            'Internal Link': 'monitor_and_optimize'
+        }
+        
+        summary = {
             'total_recommendations': len(recommendations),
             'total_potential_recovery': potential_recovery,
-            'average_confidence': 85.0,  # Fixed confidence for similarity-based
-            'optimize': len(recommendations[recommendations['consolidation_type'] == 'Optimize']),
-            'merge': len(recommendations[recommendations['consolidation_type'] == 'Merge']),
-            'redirect': len(recommendations[recommendations['consolidation_type'] == 'Redirect']),
-            'internal_link': len(recommendations[recommendations['consolidation_type'] == 'Internal Link']),
+            'average_confidence': 85.0,
             'high_priority': len(recommendations[recommendations['priority'] == 'High']),
             'medium_priority': len(recommendations[recommendations['priority'] == 'Medium']),
-            'low_priority': len(recommendations[recommendations['priority'] == 'Low'])
+            'low_priority': len(recommendations[recommendations['priority'] == 'Low']),
+            'merge_and_redirect': len(recommendations[recommendations['consolidation_type'] == 'Optimize']) + 
+                                 len(recommendations[recommendations['consolidation_type'] == 'Merge']),
+            'redirect_secondary': len(recommendations[recommendations['consolidation_type'] == 'Redirect']),
+            'evaluate_content_merge': 0,  # Not used in our current logic
+            'monitor_and_optimize': len(recommendations[recommendations['consolidation_type'] == 'Internal Link'])
         }
+        
+        return summary
