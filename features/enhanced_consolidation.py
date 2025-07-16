@@ -91,7 +91,7 @@ class EnhancedConsolidationAnalyzer:
 
     def _generate_recommendations(self, url_df: pd.DataFrame, 
                                 similarity_df: pd.DataFrame) -> pd.DataFrame:
-        """Generate recommendations"""
+        """Generate recommendations with exact column names expected by main.py"""
         if similarity_df.empty:
             return pd.DataFrame()
         
@@ -132,6 +132,9 @@ class EnhancedConsolidationAnalyzer:
             priority = 'High' if secondary_clicks > 1000 else \
                       'Medium' if secondary_clicks > 100 else 'Low'
             
+            # Calculate overlap percentage for primary URL
+            overlap_percentage_primary = (row['common_words'] / primary_keywords * 100) if primary_keywords > 0 else 0
+            
             recommendations.append({
                 'primary_page': primary,
                 'primary_page_indexed_keywords': primary_keywords,
@@ -142,7 +145,10 @@ class EnhancedConsolidationAnalyzer:
                 'similarity_score': similarity,
                 'number_keyword_overlaping': row['common_words'],
                 'consolidation_type': action,
-                'priority': priority
+                'priority': priority,
+                # Add exact column names expected by main.py
+                'potential_traffic_recovery': int(secondary_clicks * 0.7),
+                'keyword_overlap_percentage_primary': round(overlap_percentage_primary, 2)
             })
         
         return pd.DataFrame(recommendations)
