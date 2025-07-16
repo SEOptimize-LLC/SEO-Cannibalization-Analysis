@@ -1,195 +1,148 @@
 # SEO Cannibalization Analysis Tool
 
-A comprehensive Python-based tool for analyzing keyword cannibalization issues using Google Search Console data. This tool helps identify when multiple pages on your website compete for the same keywords, potentially diluting your SEO performance.
+## Overview
+This enhanced version of the SEO Cannibalization Analysis Tool provides URL-level consolidation recommendations with advanced metrics including keyword overlap analysis, semantic similarity scoring, and comprehensive traffic impact calculations.
 
-## What is SEO Cannibalization?
+## New Features
 
-SEO keyword cannibalization occurs when multiple URLs on a single website target the same keywords and satisfy the same user intent, causing them to compete against each other in search results[1][2]. This can lead to:
+### 🔗 URL-Level Consolidation Analysis
+The tool now provides detailed URL-level analysis beyond query-level recommendations:
 
-- **Reduced organic visibility** - Search engines may struggle to determine which page to rank
-- **Diluted page authority** - Link equity gets spread across multiple competing pages  
-- **Lower conversion rates** - Users may land on suboptimal pages for their intent
-- **Confused content strategy** - Unclear targeting and messaging across pages
+#### Key Metrics:
+- **Keyword Overlap Percentage**: Calculates the percentage of overlapping keywords between any two URLs
+- **Combined Traffic Metrics**: Shows total clicks and impressions for overlapping keywords
+- **Semantic Similarity**: Optional semantic analysis using query content similarity
+- **Traffic Recovery Estimates**: Predicts potential traffic recovery from consolidation
+- **Confidence Scoring**: Provides confidence levels for each recommendation
 
-## Features
+#### Recommendation Types:
+1. **Merge & Redirect**: High overlap and similarity - implement 301 redirect
+2. **Redirect Secondary**: Good overlap - redirect after content audit
+3. **Evaluate Content Merge**: Moderate overlap - review before deciding
+4. **Monitor & Optimize**: Low overlap - keep separate and optimize individually
 
-- **Advanced Data Processing**: Cleans and prepares Google Search Console data for analysis
-- **Brand Filtering**: Removes branded keyword variations to focus on non-branded opportunities
-- **Multi-layered Analysis**: Goes beyond simple overlap detection with statistical validation
-- **Click Distribution Analysis**: Identifies genuine cannibalization where multiple pages receive significant traffic
-- **Consolidation Recommendations**: Provides actionable insights for page merging decisions
-- **Comprehensive Reporting**: Detailed output with metrics and recommendations
+### 📊 Enhanced Dashboard
+- **Third Tab**: New "URL Consolidation" tab with comprehensive URL-level analysis
+- **Interactive Filters**: Filter by priority, minimum recovery potential, and keyword overlap percentage
+- **Visual Metrics**: Clear metrics cards showing consolidation opportunities
+- **Downloadable Reports**: Export URL-level recommendations as CSV
 
-## Prerequisites
+## How to Use
 
-### Python Dependencies
+### 1. Upload Data
+- Upload your Google Search Console CSV export
+- Configure brand variants to exclude branded queries
+- Run the analysis
 
-Install the required Python packages:
+### 2. Navigate the Tabs
+- **Dashboard**: Overview of your data and cleaning results
+- **Analysis Results**: Query-level cannibalization analysis
+- **URL Consolidation**: Enhanced URL-level recommendations
 
+### 3. URL Consolidation Features
+- **Summary Metrics**: View total URL pairs, priority breakdown, and potential recovery
+- **Filtering**: Use filters to focus on high-impact opportunities
+- **Detailed View**: Expand individual recommendations for detailed insights
+- **Export**: Download filtered recommendations as CSV
+
+## Technical Implementation
+
+### EnhancedConsolidationAnalyzer
+The new `EnhancedConsolidationAnalyzer` class in `features/enhanced_consolidation.py` provides:
+
+#### Methods:
+- `analyze_url_consolidation()`: Main analysis method
+- `_calculate_keyword_overlap()`: Computes keyword overlap between URLs
+- `_calculate_url_metrics()`: Aggregates performance metrics per URL
+- `_generate_enhanced_recommendations()`: Creates consolidation recommendations
+- `_calculate_confidence_score()`: Provides confidence ratings
+
+#### Data Structure:
+Each URL recommendation includes:
+- Primary and secondary URLs
+- Keyword overlap count and percentage
+- Traffic metrics (clicks, impressions)
+- Semantic similarity score
+- Consolidation type recommendation
+- Priority level
+- Confidence score
+- Implementation notes
+
+## Example Output
+
+### URL Recommendation Example:
+```
+Primary URL: /blog/seo-guide
+Secondary URL: /seo-tips-2024
+Keyword Overlap: 15 keywords (75% overlap)
+Primary Clicks: 1,250
+Secondary Clicks: 340
+Combined Clicks: 1,590
+Potential Recovery: 238 clicks
+Recommendation: Merge & Redirect
+Priority: High
+Confidence: 87.5%
+```
+
+## Installation & Setup
+
+### Requirements
+- Python 3.7+
+- Streamlit
+- Pandas
+- NumPy
+- Plotly
+
+### Running the Tool
 ```bash
-pip install pandas numpy
+cd "C:\Users\admin\Documents\Marketing\Roger SEO\Scripts\SEO-Cannibalization-Analysis"
+streamlit run main.py
 ```
 
-### Google Search Console Data
+## Data Requirements
+Your Google Search Console export should contain:
+- `query`: Search query
+- `page`: Page URL
+- `clicks`: Number of clicks
+- `impressions`: Number of impressions
+- `position`: Average position
 
-You'll need a CSV export from Google Search Console with the following columns:
+## Advanced Features
 
-- `page`: The URL of the page
-- `query`: The search query  
-- `clicks`: Number of clicks for the page-query combination
-- `impressions`: Number of impressions for the page-query combination
-- `position`: Average position for the page-query combination
+### Semantic Similarity (Future Enhancement)
+The tool is designed to support semantic similarity analysis using embeddings. To enable:
+1. Install sentence-transformers: `pip install sentence-transformers`
+2. Set `use_semantic_similarity=True` in EnhancedConsolidationAnalyzer
 
-**Recommended data range**: 3-6 months of historical data for comprehensive analysis.
+### Custom Thresholds
+Adjust these parameters in the code:
+- `CLICK_PERCENTAGE_THRESHOLD`: Minimum click share threshold
+- `MIN_CLICKS_THRESHOLD`: Minimum clicks for consideration
+- Filter thresholds in the UI
 
-## Installation
+## Benefits Over Original Version
 
-1. Clone this repository:
-```bash
-git clone https://github.com/SEOptimize-LLC/SEO-Cannibalization-Analysis.git
-cd SEO-Cannibalization-Analysis
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Prepare your data:
-   - Export data from Google Search Console
-   - Save as `dataset.csv` in the project directory
-   - Ensure the CSV has the required column structure
-
-## Configuration
-
-Update the configuration settings in `main.py`:
-
-```python
-# Configuration Settings
-FILE_LOCATION = "dataset.csv"  # Path to your GSC data file
-BRAND_VARIANTS = [
-    "your-brand-name",
-    "yourbrand", 
-    "your brand"
-]  # Add your brand name variations to filter out branded queries
-```
-
-## Usage
-
-Run the analysis:
-
-```bash
-python main.py
-```
-
-The tool will process your data through several stages:
-
-### Stage 1: Data Cleaning and Preparation
-- Loads GSC data from CSV
-- Removes branded keyword variations
-- Filters for keywords with multiple competing pages
-
-### Stage 2: Cannibalization Detection  
-- Identifies queries where multiple pages receive clicks
-- Applies statistical thresholds to focus on significant cases
-- Calculates click distribution percentages across pages
-
-### Stage 3: Analysis and Recommendations
-- Evaluates consolidation opportunities
-- Generates detailed reports with metrics
-- Provides actionable recommendations
-
-## Analysis Methodology
-
-### Click Distribution Filtering
-
-The tool identifies genuine cannibalization by focusing on keywords where:
-- At least 2 pages receive clicks for the same query
-- At least 10% of total clicks are distributed among multiple pages[2]
-- Excludes cases with single dominant pages (>90% click share)
-
-### Statistical Validation
-
-Advanced checks ensure recommendations are data-driven:
-- **Traffic Volume Analysis**: Considers total traffic impact
-- **Query Significance**: Evaluates keyword importance to each page
-- **Performance Comparison**: Analyzes relative page performance
-- **Consolidation Viability**: Assesses merger potential
-
-## Output and Reports
-
-The analysis generates:
-
-- **Cannibalization Summary**: Overview of affected queries and pages
-- **Detailed Query Analysis**: Per-keyword breakdown with metrics
-- **Page Impact Assessment**: How cannibalization affects individual pages  
-- **Consolidation Recommendations**: Specific actions to resolve issues
-- **Priority Matrix**: Ranked list of issues by impact and ease of fix
-
-## Best Practices
-
-### Data Collection
-- Use 3-6 months of data for reliable patterns[1]
-- Include both mobile and desktop data
-- Filter out extremely low-traffic queries
-- Regularly update analysis with fresh data
-
-### Implementation
-- **Start with high-impact cases**: Focus on queries driving significant traffic
-- **Content consolidation**: Merge similar pages targeting identical keywords[3]
-- **301 redirects**: Properly redirect consolidated pages to preserve link equity
-- **Internal linking**: Update internal link structure after consolidation
-
-### Monitoring  
-- **Track performance**: Monitor rankings after implementing changes
-- **Regular audits**: Run analysis quarterly to catch new issues
-- **Performance validation**: Confirm improvements in organic traffic
-
-## Common Use Cases
-
-1. **Content Audit**: Identify redundant or competing content
-2. **Site Migration**: Detect cannibalization before/after site changes  
-3. **Content Strategy**: Plan new content to avoid keyword conflicts
-4. **Performance Optimization**: Improve underperforming pages
-5. **Competitive Analysis**: Understand internal competition patterns
+| Feature | Original | Enhanced |
+|---------|----------|----------|
+| Analysis Level | Query-level | URL-level |
+| Overlap Metrics | Basic | Comprehensive |
+| Traffic Impact | Query-based | URL-based |
+| Recommendations | Simple merge/redirect | 4-tier system |
+| Filtering | Basic | Advanced |
+| Export Options | Single format | Multiple formats |
+| Confidence Scoring | None | Weighted scoring |
 
 ## Troubleshooting
 
-### Common Issues
+### Common Issues:
+1. **No URL recommendations**: Check minimum overlap and recovery thresholds
+2. **Large datasets**: Processing may take longer - consider filtering by date range
+3. **Memory issues**: Reduce dataset size or increase system memory
 
-**"No cannibalization detected"**
-- Check data file format and column names
-- Verify sufficient data volume (recommend 1000+ queries)
-- Adjust brand filtering if too aggressive
-
-**"High false positives"**  
-- Review click percentage threshold settings
-- Consider seasonal variations in data
-- Validate brand keyword filtering
-
-**"Performance not improving after fixes"**
-- Allow 4-8 weeks for search engine re-evaluation
-- Verify 301 redirects are properly implemented
-- Check for other technical SEO issues
-
-## Contributing
-
-We welcome contributions! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request with detailed description
-4. Include tests for new functionality
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Performance Tips:
+- Filter by date range before export from GSC
+- Use brand filtering to reduce dataset size
+- Adjust minimum thresholds to focus on high-impact opportunities
 
 ## Support
-
-For questions or support:
-- Open an issue on GitHub
-- Review the documentation
-- Check existing issues for similar problems
-
-**Note**: This tool provides analysis and recommendations. Always validate findings manually and test changes in a staging environment before implementing on production sites.
+For issues or questions, refer to the original repository or create an issue with detailed information about your dataset and the specific problem encountered.
