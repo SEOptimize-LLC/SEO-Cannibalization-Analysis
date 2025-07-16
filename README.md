@@ -1,148 +1,157 @@
-# SEO Cannibalization Analysis Tool
+# Enhanced SEO Cannibalization Analysis Tool
 
 ## Overview
-This enhanced version of the SEO Cannibalization Analysis Tool provides URL-level consolidation recommendations with advanced metrics including keyword overlap analysis, semantic similarity scoring, and comprehensive traffic impact calculations.
+This enhanced version of the SEO Cannibalization Analysis Tool provides URL-level consolidation recommendations with advanced metrics including keyword overlap percentages, semantic similarity scoring, and comprehensive traffic recovery estimates.
 
 ## New Features
 
 ### 🔗 URL-Level Consolidation Analysis
-The tool now provides detailed URL-level analysis beyond query-level recommendations:
+- **Keyword Overlap Analysis**: Calculate the percentage of keyword overlap between any two URLs
+- **Semantic Similarity**: Enhanced similarity scoring using TF-IDF or optional embeddings
+- **Traffic Recovery Estimates**: Predict potential traffic recovery from URL consolidation
+- **Actionable Recommendations**: Specific actions (Merge, Redirect, Optimize, etc.) with priorities
 
-#### Key Metrics:
-- **Keyword Overlap Percentage**: Calculates the percentage of overlapping keywords between any two URLs
-- **Combined Traffic Metrics**: Shows total clicks and impressions for overlapping keywords
-- **Semantic Similarity**: Optional semantic analysis using query content similarity
-- **Traffic Recovery Estimates**: Predicts potential traffic recovery from consolidation
-- **Confidence Scoring**: Provides confidence levels for each recommendation
+### 📊 Enhanced Metrics
+- **Combined Clicks & Impressions**: Sum traffic metrics for URL pairs
+- **Jaccard Similarity**: Measure keyword set similarity between URLs
+- **Confidence Scoring**: Weighted scoring system for recommendations
+- **Priority Classification**: High/Medium/Low priority based on potential impact
 
-#### Recommendation Types:
-1. **Merge & Redirect**: High overlap and similarity - implement 301 redirect
-2. **Redirect Secondary**: Good overlap - redirect after content audit
-3. **Evaluate Content Merge**: Moderate overlap - review before deciding
-4. **Monitor & Optimize**: Low overlap - keep separate and optimize individually
+### 🧠 Semantic Analysis Options
+- **Basic TF-IDF**: Uses query text for similarity calculation
+- **Enhanced Embeddings**: Optional upload of URL embeddings for better semantic similarity
+- **Flexible Similarity**: Works with or without external embeddings
 
-### 📊 Enhanced Dashboard
-- **Third Tab**: New "URL Consolidation" tab with comprehensive URL-level analysis
-- **Interactive Filters**: Filter by priority, minimum recovery potential, and keyword overlap percentage
-- **Visual Metrics**: Clear metrics cards showing consolidation opportunities
-- **Downloadable Reports**: Export URL-level recommendations as CSV
-
-## How to Use
-
-### 1. Upload Data
-- Upload your Google Search Console CSV export
-- Configure brand variants to exclude branded queries
-- Run the analysis
-
-### 2. Navigate the Tabs
-- **Dashboard**: Overview of your data and cleaning results
-- **Analysis Results**: Query-level cannibalization analysis
-- **URL Consolidation**: Enhanced URL-level recommendations
-
-### 3. URL Consolidation Features
-- **Summary Metrics**: View total URL pairs, priority breakdown, and potential recovery
-- **Filtering**: Use filters to focus on high-impact opportunities
-- **Detailed View**: Expand individual recommendations for detailed insights
-- **Export**: Download filtered recommendations as CSV
-
-## Technical Implementation
-
-### EnhancedConsolidationAnalyzer
-The new `EnhancedConsolidationAnalyzer` class in `features/enhanced_consolidation.py` provides:
-
-#### Methods:
-- `analyze_url_consolidation()`: Main analysis method
-- `_calculate_keyword_overlap()`: Computes keyword overlap between URLs
-- `_calculate_url_metrics()`: Aggregates performance metrics per URL
-- `_generate_enhanced_recommendations()`: Creates consolidation recommendations
-- `_calculate_confidence_score()`: Provides confidence ratings
-
-#### Data Structure:
-Each URL recommendation includes:
-- Primary and secondary URLs
-- Keyword overlap count and percentage
-- Traffic metrics (clicks, impressions)
-- Semantic similarity score
-- Consolidation type recommendation
-- Priority level
-- Confidence score
-- Implementation notes
-
-## Example Output
-
-### URL Recommendation Example:
-```
-Primary URL: /blog/seo-guide
-Secondary URL: /seo-tips-2024
-Keyword Overlap: 15 keywords (75% overlap)
-Primary Clicks: 1,250
-Secondary Clicks: 340
-Combined Clicks: 1,590
-Potential Recovery: 238 clicks
-Recommendation: Merge & Redirect
-Priority: High
-Confidence: 87.5%
-```
-
-## Installation & Setup
+## Installation
 
 ### Requirements
-- Python 3.7+
-- Streamlit
-- Pandas
-- NumPy
-- Plotly
-
-### Running the Tool
 ```bash
-cd "C:\Users\admin\Documents\Marketing\Roger SEO\Scripts\SEO-Cannibalization-Analysis"
-streamlit run main.py
+pip install -r requirements.txt
 ```
 
-## Data Requirements
-Your Google Search Console export should contain:
-- `query`: Search query
-- `page`: Page URL
-- `clicks`: Number of clicks
-- `impressions`: Number of impressions
-- `position`: Average position
+### New Dependencies
+- `scikit-learn>=1.3.0` - For TF-IDF vectorization and cosine similarity
 
-## Advanced Features
+## Usage
 
-### Semantic Similarity (Future Enhancement)
-The tool is designed to support semantic similarity analysis using embeddings. To enable:
-1. Install sentence-transformers: `pip install sentence-transformers`
-2. Set `use_semantic_similarity=True` in EnhancedConsolidationAnalyzer
+### Basic Usage
+1. Upload your Google Search Console CSV file
+2. Run the analysis
+3. Navigate to the "URL Consolidation Analysis" tab
 
-### Custom Thresholds
-Adjust these parameters in the code:
-- `CLICK_PERCENTAGE_THRESHOLD`: Minimum click share threshold
-- `MIN_CLICKS_THRESHOLD`: Minimum clicks for consideration
-- Filter thresholds in the UI
+### Advanced Usage with Embeddings
+1. Upload your GSC CSV file
+2. Optionally upload URL embeddings CSV file
+3. Run the analysis for enhanced semantic similarity
+4. Use the URL consolidation recommendations
 
-## Benefits Over Original Version
+### CSV Format for Embeddings
+Your embeddings file should have the following format:
+```
+url,embedding_dim_1,embedding_dim_2,...,embedding_dim_n
+https://example.com/page1,0.123,0.456,...,0.789
+https://example.com/page2,0.234,0.567,...,0.890
+```
 
-| Feature | Original | Enhanced |
-|---------|----------|----------|
-| Analysis Level | Query-level | URL-level |
-| Overlap Metrics | Basic | Comprehensive |
-| Traffic Impact | Query-based | URL-based |
-| Recommendations | Simple merge/redirect | 4-tier system |
-| Filtering | Basic | Advanced |
-| Export Options | Single format | Multiple formats |
-| Confidence Scoring | None | Weighted scoring |
+## Understanding the Results
+
+### URL Consolidation Recommendations
+Each recommendation includes:
+- **Primary URL**: The URL to keep (higher traffic)
+- **Secondary URL**: The URL to consolidate/redirect
+- **Action**: Specific action to take (Merge, Redirect, Optimize, etc.)
+- **Priority**: High/Medium/Low based on potential impact
+- **Keyword Overlap Count**: Number of shared keywords
+- **Keyword Overlap %**: Percentage of keyword overlap
+- **Semantic Similarity**: Similarity score (0-100%)
+- **Traffic Metrics**: Clicks and impressions for both URLs
+- **Potential Recovery**: Estimated traffic recovery from consolidation
+- **Shared Keywords**: List of overlapping keywords
+
+### Action Types
+- **Merge**: High overlap and similarity - consolidate content
+- **Redirect**: Good overlap - redirect secondary to primary
+- **Optimize**: Moderate overlap - optimize both URLs separately
+- **Internal Link**: Low overlap - add internal linking
+- **Monitor**: Minimal overlap - monitor performance
+- **False Positive**: Very low overlap - likely not cannibalization
+
+### Priority Levels
+- **High**: Potential recovery > 500 clicks
+- **Medium**: Potential recovery 100-500 clicks
+- **Low**: Potential recovery < 100 clicks
+
+## Example Workflow
+
+### 1. Data Preparation
+Upload your Google Search Console export with columns:
+- query
+- page
+- clicks
+- impressions
+- position
+
+### 2. Optional Embeddings
+Create embeddings for your URLs using:
+- Sentence transformers (e.g., all-MiniLM-L6-v2)
+- Word2Vec on URL content
+- Custom embedding models
+
+### 3. Analysis
+The tool will:
+- Clean and process your data
+- Calculate keyword overlaps between URLs
+- Generate semantic similarity scores
+- Provide actionable consolidation recommendations
+- Estimate traffic recovery potential
+
+### 4. Implementation
+Use the recommendations to:
+- Identify high-impact consolidation opportunities
+- Prioritize actions based on potential recovery
+- Make data-driven decisions about URL consolidation
+
+## Technical Details
+
+### Algorithm Overview
+1. **Data Cleaning**: Remove invalid entries and standardize data
+2. **URL Metrics**: Calculate comprehensive metrics for each URL
+3. **Keyword Overlap**: Identify shared keywords between URL pairs
+4. **Semantic Similarity**: Calculate content similarity using TF-IDF or embeddings
+5. **Recommendation Engine**: Generate actionable recommendations with confidence scores
+6. **Priority Scoring**: Rank recommendations by potential impact
+
+### Scoring System
+- **Keyword Overlap Weight**: 40%
+- **Semantic Similarity Weight**: 20%
+- **Traffic Recovery Weight**: 40%
 
 ## Troubleshooting
 
-### Common Issues:
-1. **No URL recommendations**: Check minimum overlap and recovery thresholds
-2. **Large datasets**: Processing may take longer - consider filtering by date range
-3. **Memory issues**: Reduce dataset size or increase system memory
+### Common Issues
+1. **No recommendations found**: Check if you have enough URLs with overlapping keywords
+2. **Embeddings not working**: Ensure embeddings file has 'url' column and numeric values
+3. **Memory issues**: Reduce dataset size or use basic TF-IDF instead of embeddings
 
-### Performance Tips:
-- Filter by date range before export from GSC
-- Use brand filtering to reduce dataset size
-- Adjust minimum thresholds to focus on high-impact opportunities
+### Performance Tips
+- Use basic TF-IDF for large datasets (>10k URLs)
+- Upload embeddings for enhanced accuracy on smaller datasets
+- Filter by minimum keyword overlap to focus on relevant pairs
 
-## Support
-For issues or questions, refer to the original repository or create an issue with detailed information about your dataset and the specific problem encountered.
+## File Structure
+```
+SEO-Cannibalization-Analysis/
+├── main.py                    # Enhanced main application
+├── features/
+│   ├── url_consolidation_analyzer.py  # URL-level analysis
+│   └── enhanced_consolidation.py      # Legacy enhanced module
+├── requirements.txt           # Updated dependencies
+└── ENHANCED_README.md         # This file
+```
+
+## Future Enhancements
+- Real-time embedding generation
+- Advanced NLP for content analysis
+- Historical trend analysis
+- Integration with content management systems
+- API endpoints for programmatic access
