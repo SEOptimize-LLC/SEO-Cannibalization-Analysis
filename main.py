@@ -260,16 +260,9 @@ def run_cannibalization_analysis(df, brand_variants):
 
 def run_url_consolidation_analysis(df, embeddings_df=None):
     """Run URL-level consolidation analysis"""
-    if embeddings_df is not None:
-        # Use optimized analyzer with pre-calculated similarity data
-        from features.optimized_consolidation_analyzer import OptimizedConsolidationAnalyzer
-        analyzer = OptimizedConsolidationAnalyzer()
-        return analyzer.analyze_consolidation(df, embeddings_df)
-    else:
-        # Fallback to basic analyzer
-        from features.url_consolidation_analyzer import URLConsolidationAnalyzer
-        analyzer = URLConsolidationAnalyzer()
-        return analyzer.analyze_url_consolidation(df, embeddings_df)
+    from features.url_consolidation_analyzer import URLConsolidationAnalyzer
+    analyzer = URLConsolidationAnalyzer()
+    return analyzer.analyze_url_consolidation(df, embeddings_df)
 
 def main():
     """Main application function"""
