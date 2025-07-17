@@ -1,132 +1,149 @@
 """
-SEO Cannibalization Analysis
+Simple Streamlit App for SEO Cannibalization Analysis
 """
 
 import streamlit as st
 import pandas as pd
-import sys
-import os
-
-# Add src to path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from src.data_loaders.gsc_loader import GSCLoader
-from src.data_loaders.similarity_loader import SimilarityLoader
-from src.processors.url_filter import URLFilter
-from src.analyzers.action_classifier import ActionClassifier
-from src.analyzers.priority_assigner import PriorityAssigner
-from src.formatters.report_formatter import ReportFormatter
+import numpy as np
+import re
 
 
-class StreamlitSEOAnalyzer:
-    """Streamlit-compatible SEO analyzer"""
+def normalize_columns(df):
+    """Normalize column names to standard format"""
+    column_mapping = {
+        'Query': 'query', 'Search Query': 'query', 'search_query': 'query',
+        'Page': 'page', 'URL': 'page', 'page_url': 'page',
+        'Clicks': 'clicks', 'Clicks (All)': 'clicks', 'clicks_all': 'clicks',
+        'Impressions': 'impressions', 'Impressions (All)': 'impressions',
+        'impressions_all': 'impressions',
+        'Position': 'position', 'Avg. Position': 'position', 'avg_position': 'position',
+    }
     
-    def __init__(self):
-        self.gsc_loader = GSCLoader()
-        self.similarity_loader = SimilarityLoader()
-        self.url_filter = URLFilter()
-        self.action_classifier = ActionClassifier()
-        self.priority_assigner = PriorityAssigner()
-        self.report_formatter = ReportFormatter()
+    new_columns = {}
+    for col in df.columns:
+        if col in column_mapping:
+            new_columns[col] = column_mapping[col]
+        else:
+            col_lower = col.lower()
+            for key, value in column_mapping.items():
+                if key.lower() == col_lower:
+                    new_columns[col] = value
+                    break
+            else:
+                new_columns[col] = col
     
-    def run_analysis(self, gsc_df, similarity_df):
-        """Run analysis with DataFrames instead of file paths"""
-        try:
-            # Step 1: Filter URLs
-            gsc_df = self.url_filter.filter_dataframe(gsc_df)
-            
-            # Step 2: Aggregate GSC metrics
-            gsc_metrics = self.gsc_loader.aggregate_metrics(gsc_df)
-            
-            # Step 3: Validate URLs against GSC data
-            gsc_urls = set(gsc_metrics['page'])
-            similarity_df = self.similarity_loader.validate_urls_against_gsc(
-                similarity_df, gsc_urls
-            )
-            
-            # Step 4: Merge data
-            merged_df = self._merge_data(similarity_df, gsc_metrics)
-            
-            # Step 5: Calculate total clicks for priority assignment
-            total_clicks = gsc_metrics['total_clicks'].sum()
-            
-            # Step 6: Classify actions and assign priorities
-            merged_df['recommended_action'] = merged_df.apply(
-                self.action_classifier.classify, axis=1
-            )
-            merged_df['priority'] = merged_df.apply(
-                lambda row: self.priority_assigner.assign(row, total_clicks), axis=1
-            )
-            
-            # Step 7: Format final report
-            final_report = self.report_formatter.format_report(merged_df)
-            
-            return final_report
-            
-        except Exception as e:
-            st.error(f"Analysis error: {str(e)}")
+    return df.rename(columns=new_columns)
+
+
+def clean_data(df):
+    """Clean and prepare data"""
+    # Ensure required columns exist
+    required = ['query', 'page', 'clicks', 'impressions']
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        st.error(f"Missing columns: {missing}")
+        return None
+    
+    # Clean data
+    df = df.copy()
+    df['page'] = df['page'].astype(str)
+    df['query'] = df['query'].astype(str)
+    df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce')
+    df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce')
+    
+    # Remove NaN values
+    df = df.dropna(subset=required)
+    
+    # Filter out invalid URLs
+    mask = df['page'].str.startswith('http')
+    df = df[mask]
+    
+    return df
+
+
+def analyze_cannibalization(gsc_df, similarity_df):
+    """Simple cannibalization analysis"""
+    try:
+        # Clean GSC data
+        gsc_df = clean_data(gsc_df)
+        if gsc_df is None:
             return None
-    
-    def _merge_data(self, similarity_df, gsc_metrics):
-        """Merge similarity data with GSC metrics"""
-        # Rename columns for consistency
-        gsc_metrics = gsc_metrics.rename(columns={
-            'page': 'url',
-            'indexed_queries': 'indexed_queries',
-            'total_clicks': 'clicks',
-            'total_impressions': 'impressions'
-        })
         
-        # Merge primary URL data
+        # Clean similarity data
+        similarity_df = similarity_df.copy()
+        
+        # Ensure similarity columns exist
+        if len(similarity_df.columns) >= 3:
+            similarity_df.columns = ['primary_url', 'secondary_url', 'similarity_score']
+        else:
+            st.error("Similarity file needs at least 3 columns")
+            return None
+        
+        # Clean similarity data
+        similarity_df['primary_url'] = similarity_df['primary_url'].astype(str)
+        similarity_df['secondary_url'] = similarity_df['secondary_url'].astype(str)
+        similarity_df['similarity_score'] = pd.to_numeric(
+            similarity_df['similarity_score'], errors='coerce'
+        )
+        
+        # Get GSC URLs
+        gsc_urls = set(gsc_df['page'].unique())
+        
+        # Filter valid URL pairs
+        mask = (
+            similarity_df['primary_url'].isin(gsc_urls) & 
+            similarity_df['secondary_url'].isin(gsc_urls)
+        )
+        similarity_df = similarity_df[mask].dropna()
+        
+        # Aggregate GSC metrics
+        gsc_metrics = gsc_df.groupby('page').agg({
+            'query': 'nunique',
+            'clicks': 'sum',
+            'impressions': 'sum'
+        }).reset_index()
+        
+        # Merge data
         merged = similarity_df.merge(
             gsc_metrics,
             left_on='primary_url',
-            right_on='url',
-            how='left',
-            suffixes=('', '_primary')
-        )
-        
-        # Rename primary columns
-        merged = merged.rename(columns={
-            'indexed_queries': 'primary_url_indexed_queries',
-            'clicks': 'primary_url_clicks',
-            'impressions': 'primary_url_impressions'
+            right_on='page',
+            how='left'
+        ).rename(columns={
+            'query': 'primary_queries',
+            'clicks': 'primary_clicks',
+            'impressions': 'primary_impressions'
         })
         
-        # Merge secondary URL data
         merged = merged.merge(
             gsc_metrics,
             left_on='secondary_url',
-            right_on='url',
+            right_on='page',
             how='left',
-            suffixes=('', '_secondary')
-        )
-        
-        # Rename secondary columns
-        merged = merged.rename(columns={
-            'indexed_queries': 'secondary_url_indexed_queries',
-            'clicks': 'secondary_url_clicks',
-            'impressions': 'secondary_url_impressions'
+            suffixes=('_primary', '_secondary')
+        ).rename(columns={
+            'query_secondary': 'secondary_queries',
+            'clicks_secondary': 'secondary_clicks',
+            'impressions_secondary': 'secondary_impressions'
         })
         
-        # Clean up temporary columns
-        columns_to_drop = [col for col in merged.columns 
-                          if col.endswith(('_primary', '_secondary'))]
-        merged = merged.drop(columns=columns_to_drop)
-        merged = merged.drop(columns=['url'], errors='ignore')
+        # Add recommendations
+        merged['recommended_action'] = 'Analyze'
+        merged['priority'] = 'Medium'
         
-        # Fill NaN values with 0 for numeric columns
-        numeric_cols = [
-            'primary_url_indexed_queries', 'primary_url_clicks',
-            'primary_url_impressions',
-            'secondary_url_indexed_queries', 'secondary_url_clicks',
-            'secondary_url_impressions'
-        ]
-        for col in numeric_cols:
-            if col in merged.columns:
-                merged[col] = merged[col].fillna(0).astype(int)
+        # Clean up
+        result = merged[[
+            'primary_url', 'secondary_url', 'similarity_score',
+            'primary_queries', 'primary_clicks', 'primary_impressions',
+            'secondary_queries', 'secondary_clicks', 'secondary_impressions',
+            'recommended_action', 'priority'
+        ]].dropna()
         
-        return merged
+        return result
+        
+    except Exception as e:
+        st.error(f"Analysis error: {str(e)}")
+        return None
 
 
 def main():
@@ -139,9 +156,6 @@ def main():
     
     st.title("🔍 SEO Cannibalization Analysis Tool")
     st.markdown("Analyze keyword cannibalization using GSC data and semantic similarity")
-    
-    # Initialize analyzer
-    analyzer = StreamlitSEOAnalyzer()
     
     # Sidebar for file uploads
     with st.sidebar:
@@ -182,8 +196,11 @@ def main():
                 else:
                     similarity_df = pd.read_excel(similarity_file)
                 
+                # Normalize GSC columns
+                gsc_df = normalize_columns(gsc_df)
+                
                 # Run analysis
-                results = analyzer.run_analysis(gsc_df, similarity_df)
+                results = analyze_cannibalization(gsc_df, similarity_df)
                 
                 if results is not None and not results.empty:
                     st.success("✅ Analysis completed successfully!")
@@ -194,53 +211,16 @@ def main():
                     with col1:
                         st.metric("Total URL Pairs", len(results))
                     with col2:
-                        actions = results['recommended_action'].value_counts()
-                        st.metric("Actions Needed", len(actions[actions > 0]))
+                        st.metric("Unique Primary URLs", results['primary_url'].nunique())
                     with col3:
-                        high_priority = len(results[results['priority'] == 'High'])
-                        st.metric("High Priority", high_priority)
-                    
-                    # Action distribution
-                    st.header("📋 Action Distribution")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader("By Action Type")
-                        action_counts = results['recommended_action'].value_counts()
-                        st.bar_chart(action_counts)
-                    with col2:
-                        st.subheader("By Priority")
-                        priority_counts = results['priority'].value_counts()
-                        st.bar_chart(priority_counts)
+                        st.metric("Unique Secondary URLs", results['secondary_url'].nunique())
                     
                     # Detailed results
                     st.header("🔍 Detailed Results")
-                    
-                    # Filters
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        action_filter = st.multiselect(
-                            "Filter by Action",
-                            options=results['recommended_action'].unique(),
-                            default=results['recommended_action'].unique()
-                        )
-                    with col2:
-                        priority_filter = st.multiselect(
-                            "Filter by Priority",
-                            options=results['priority'].unique(),
-                            default=results['priority'].unique()
-                        )
-                    
-                    # Apply filters
-                    filtered_results = results[
-                        (results['recommended_action'].isin(action_filter)) &
-                        (results['priority'].isin(priority_filter))
-                    ]
-                    
-                    # Display results
-                    st.dataframe(filtered_results, use_container_width=True)
+                    st.dataframe(results, use_container_width=True)
                     
                     # Download button
-                    csv = filtered_results.to_csv(index=False)
+                    csv = results.to_csv(index=False)
                     st.download_button(
                         label="📥 Download Results",
                         data=csv,
