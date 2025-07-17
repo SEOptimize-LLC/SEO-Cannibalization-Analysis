@@ -71,82 +71,62 @@ class URLConsolidationAnalyzer:
         return url_metrics
     
     def _calculate_keyword_overlap(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate keyword overlap between URL pairs - optimized version"""
-        # Create URL-query mapping with performance filtering
+        """Calculate keyword overlap between URL pairs"""
+        # Create URL-query mapping
         url_queries = df.groupby('page')['query'].apply(set).to_dict()
-        url_clicks = df.groupby('page')['clicks'].sum().to_dict()
-        
-        # Filter URLs with significant traffic to reduce pairs
-        min_clicks_threshold = 5
-        significant_urls = [url for url, clicks in url_clicks.items() if clicks >= min_clicks_threshold]
-        
-        if len(significant_urls) < 2:
-            # If not enough significant URLs, use top URLs by clicks
-            top_urls = sorted(url_clicks.items(), key=lambda x: x[1], reverse=True)[:50]
-            significant_urls = [url for url, _ in top_urls]
-        
-        # Limit to prevent excessive computation
-        max_urls = 100
-        if len(significant_urls) > max_urls:
-            significant_urls = significant_urls[:max_urls]
-        
-        # Pre-calculate query performance for efficiency
-        query_performance = df.groupby(['query', 'page']).agg({
+        url_metrics = df.groupby('page').agg({
+            'query': lambda x: len(x.unique()),
             'clicks': 'sum',
             'impressions': 'sum'
         }).reset_index()
+        url_metrics.columns = ['page', 'indexed_queries', 'clicks', 'impressions']
+        
+        # Get all URLs
+        urls = list(url_queries.keys())
         
         overlap_data = []
         
-        # Use efficient set operations
-        for i, url1 in enumerate(significant_urls):
+        for i, url1 in enumerate(urls):
             queries1 = url_queries[url1]
             if not queries1:
                 continue
                 
-            for url2 in significant_urls[i+1:]:
+            for url2 in urls[i+1:]:
                 queries2 = url_queries[url2]
                 if not queries2:
                     continue
                 
-                # Calculate overlap efficiently
+                # Calculate overlap
                 intersection = queries1 & queries2
                 if len(intersection) == 0:
                     continue
                 
-                union = queries1 | queries2
-                
                 overlap_count = len(intersection)
+                
+                # Calculate overlap percentages
                 total_queries1 = len(queries1)
                 total_queries2 = len(queries2)
                 
                 overlap_percentage1 = (overlap_count / total_queries1 * 100) if total_queries1 > 0 else 0
                 overlap_percentage2 = (overlap_count / total_queries2 * 100) if total_queries2 > 0 else 0
-                jaccard_similarity = (len(intersection) / len(union) * 100) if len(union) > 0 else 0
+                avg_overlap_percentage = (overlap_percentage1 + overlap_percentage2) / 2
                 
-                # Calculate combined performance efficiently
-                overlap_mask = query_performance['query'].isin(intersection)
-                url1_mask = overlap_mask & (query_performance['page'] == url1)
-                url2_mask = overlap_mask & (query_performance['page'] == url2)
+                # Get metrics for both URLs
+                url1_metrics = url_metrics[url_metrics['page'] == url1].iloc[0]
+                url2_metrics = url_metrics[url_metrics['page'] == url2].iloc[0]
                 
-                combined_clicks = query_performance.loc[url1_mask, 'clicks'].sum() + query_performance.loc[url2_mask, 'clicks'].sum()
-                combined_impressions = query_performance.loc[url1_mask, 'impressions'].sum() + query_performance.loc[url2_mask, 'impressions'].sum()
-                
-                # Only include pairs with meaningful overlap
-                if jaccard_similarity >= 5:  # Minimum 5% overlap
-                    overlap_data.append({
-                        'url1': url1,
-                        'url2': url2,
-                        'overlap_queries': list(intersection),
-                        'overlap_count': overlap_count,
-                        'url1_total_queries': total_queries1,
-                        'url2_total_queries': total_queries2,
-                        'overlap_percentage_url1': round(overlap_percentage1, 2),
-                        'overlap_percentage_url2': round(overlap_percentage2, 2),
-                        'jaccard_similarity': round(jaccard_similarity, 2),
-                        'combined_overlap_clicks': combined_clicks,
-                        'combined_overlap_impressions': combined_impressions
-                    })
+                overlap_data.append({
+                    'url1': url1,
+                    'url2': url2,
+                    'url1_indexed_queries': int(url1_metrics['indexed_queries']),
+                    'url1_clicks': int(url1_metrics['clicks']),
+                    'url1_impressions': int(url1_metrics['impressions']),
+                    'url2_indexed_queries': int(url2_metrics['indexed_queries']),
+                    'url2_clicks': int(url2_metrics['clicks']),
+                    'url2_impressions': int(url2_metrics['impressions']),
+                    'keyword_overlap_count': int(overlap_count),
+                    'keyword_overlap_percentage': round(avg_overlap_percentage, 2)
+                })
         
         return pd.DataFrame(overlap_data)
     
@@ -241,61 +221,47 @@ class URLConsolidationAnalyzer:
                                               url_metrics: pd.DataFrame,
                                               overlap_matrix: pd.DataFrame,
                                               semantic_similarity: Dict) -> pd.DataFrame:
-        """Generate consolidation recommendations"""
+        """Generate consolidation recommendations in exact format requested"""
         recommendations = []
         
         for _, overlap in overlap_matrix.iterrows():
             url1, url2 = overlap['url1'], overlap['url2']
             
-            # Get URL metrics
-            url1_metrics = url_metrics[url_metrics['page'] == url1].iloc[0]
-            url2_metrics = url_metrics[url_metrics['page'] == url2].iloc[0]
-            
-            # Determine primary URL (higher clicks)
-            if url1_metrics['total_clicks'] >= url2_metrics['total_clicks']:
-                primary_url, secondary_url = url1, url2
-                primary_metrics, secondary_metrics = url1_metrics, url2_metrics
-                primary_overlap_pct = overlap['overlap_percentage_url1']
-                secondary_overlap_pct = overlap['overlap_percentage_url2']
-            else:
-                primary_url, secondary_url = url2, url1
-                primary_metrics, secondary_metrics = url2_metrics, url1_metrics
-                primary_overlap_pct = overlap['overlap_percentage_url2']
-                secondary_overlap_pct = overlap['overlap_percentage_url1']
-            
-            # Calculate consolidation metrics
-            total_combined_clicks = primary_metrics['total_clicks'] + secondary_metrics['total_clicks']
-            total_combined_impressions = primary_metrics['total_impressions'] + secondary_metrics['total_impressions']
-            
-            # Traffic recovery estimate (70% of secondary URL clicks)
-            potential_recovery = int(secondary_metrics['total_clicks'] * 0.7)
-            
-            # Semantic similarity score
+            # Get semantic similarity
             semantic_score = semantic_similarity.get(
-                (primary_url, secondary_url), 
-                semantic_similarity.get((secondary_url, primary_url), 0)
+                (url1, url2), 
+                semantic_similarity.get((url2, url1), 0)
             )
             
-            # Determine recommendation type and priority
-            recommendation_type, priority = self._determine_recommendation(
-                overlap, semantic_score, potential_recovery
-            )
+            # Determine action and priority based on overlap and similarity
+            overlap_pct = overlap['keyword_overlap_percentage']
+            if overlap_pct >= 60 and semantic_score >= 50:
+                action = 'Merge'
+                priority = 'High'
+            elif overlap_pct >= 40:
+                action = 'Redirect'
+                priority = 'Medium'
+            elif overlap_pct >= 20:
+                action = 'Optimize'
+                priority = 'Medium'
+            else:
+                action = 'Monitor'
+                priority = 'Low'
             
             recommendations.append({
-                'primary_url': primary_url,
-                'secondary_url': secondary_url,
-                'action': recommendation_type,
-                'priority': priority,
-                'keyword_overlap_count': overlap['overlap_count'],
-                'keyword_overlap_percentage': (primary_overlap_pct + secondary_overlap_pct) / 2,
-                'jaccard_similarity': overlap['jaccard_similarity'],
+                'primary_url': overlap['url1'],
+                'primary_indexed_queries': overlap['url1_indexed_queries'],
+                'primary_clicks': overlap['url1_clicks'],
+                'primary_impressions': overlap['url1_impressions'],
+                'secondary_url': overlap['url2'],
+                'secondary_indexed_queries': overlap['url2_indexed_queries'],
+                'secondary_clicks': overlap['url2_clicks'],
+                'secondary_impressions': overlap['url2_impressions'],
                 'semantic_similarity': semantic_score,
-                'primary_clicks': primary_metrics['total_clicks'],
-                'secondary_clicks': secondary_metrics['total_clicks'],
-                'combined_clicks': total_combined_clicks,
-                'combined_impressions': total_combined_impressions,
-                'potential_recovery': potential_recovery,
-                'shared_keywords': overlap['overlap_queries']
+                'keyword_overlap_count': overlap['keyword_overlap_count'],
+                'keyword_overlap_percentage': overlap['keyword_overlap_percentage'],
+                'recommended_action': action,
+                'priority': priority
             })
         
         return pd.DataFrame(recommendations)
@@ -334,20 +300,18 @@ class URLConsolidationAnalyzer:
         if recommendations.empty:
             return {
                 'total_pairs': 0,
-                'total_potential_recovery': 0,
                 'priorities': {},
                 'actions': {}
             }
         
         # Count actions
-        actions = recommendations['action'].value_counts().to_dict()
+        actions = recommendations['recommended_action'].value_counts().to_dict()
         
         # Count priorities
         priorities = recommendations['priority'].value_counts().to_dict()
         
         return {
             'total_pairs': len(recommendations),
-            'total_potential_recovery': recommendations['potential_recovery'].sum(),
             'priorities': priorities,
             'actions': actions
         }
