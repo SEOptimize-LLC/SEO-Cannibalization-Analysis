@@ -103,7 +103,7 @@ def clean_gsc_data(df):
     cleaning_stats['removed_non_urls'] = (~valid_url_mask).sum()
     df = df[valid_url_mask]
     
-    param_mask = df['page'].str.contains(r'[?=&]', case=False, na=False)
+    param_mask = df['page'].str.contains(r'[?=#&]', case=False, na=False)
     cleaning_stats['removed_with_parameters'] = param_mask.sum()
     df = df[~param_mask]
     
