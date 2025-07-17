@@ -1,0 +1,4 @@
+Address,Closest Semantically Similar Address,Semantic Similarity Score,Indexability,Indexability Status
+https://example.com/page1,https://example.com/page2,85.5,,
+https://example.com/page1,https://example.com/page3,42.3,,
+https://example.com/page2,https://example.com/page3,67.8,,
