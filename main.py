@@ -481,15 +481,13 @@ def main():
                 # Summary metrics
                 st.markdown("### 📊 URL Consolidation Summary")
                 
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total URL Pairs", summary['total_pairs'])
                 with col2:
-                    st.metric("Total Potential Recovery", f"{summary['total_potential_recovery']:,}")
-                with col3:
                     high_priority = summary['priorities'].get('High', 0)
                     st.metric("High Priority", high_priority)
-                with col4:
+                with col3:
                     medium_priority = summary['priorities'].get('Medium', 0)
                     st.metric("Medium Priority", medium_priority)
                 
@@ -507,23 +505,15 @@ def main():
                 # Filter controls
                 st.markdown("### 🔍 Filter URL Recommendations")
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 with col1:
                     action_filter = st.multiselect(
                         "Action",
-                        options=['Merge', 'Redirect', 'Optimize', 'Internal Link', 'Monitor', 'Remove', 'False Positive'],
+                        options=['Merge', 'Redirect', 'Optimize', 'Internal Link', 'Monitor', 'False Positive'],
                         default=['Merge', 'Redirect', 'Optimize', 'Internal Link'],
                         key="action_filter"
                     )
                 with col2:
-                    min_recovery = st.number_input(
-                        "Min Potential Recovery",
-                        min_value=0,
-                        value=10,
-                        step=5,
-                        key="min_recovery"
-                    )
-                with col3:
                     min_overlap = st.number_input(
                         "Min Keyword Overlap %",
                         min_value=0,
@@ -535,8 +525,7 @@ def main():
                 
                 # Filter recommendations
                 filtered_recs = recommendations[
-                    (recommendations['action'].isin(action_filter)) &
-                    (recommendations['potential_recovery'] >= min_recovery) &
+                    (recommendations['recommended_action'].isin(action_filter)) &
                     (recommendations['keyword_overlap_percentage'] >= min_overlap)
                 ]
                 
@@ -561,7 +550,7 @@ def main():
                     ]
                     
                     st.dataframe(
-                        filtered_recs[display_cols].sort_values('potential_recovery', ascending=False),
+                        filtered_recs[display_cols].sort_values('keyword_overlap_percentage', ascending=False),
                         use_container_width=True,
                         hide_index=True
                     )
@@ -569,25 +558,18 @@ def main():
                     # Individual recommendation details
                     st.markdown("### 🔍 Individual URL Recommendations")
                     for idx, rec in filtered_recs.head(10).iterrows():
-                        with st.expander(f"🔗 {rec['action']}: {rec['primary_url']} ← {rec['secondary_url']}"):
+                        with st.expander(f"🔗 {rec['recommended_action']}: {rec['primary_url']} ← {rec['secondary_url']}"):
                             col1, col2 = st.columns(2)
                             with col1:
                                 st.metric("Primary Clicks", rec['primary_clicks'])
                                 st.metric("Secondary Clicks", rec['secondary_clicks'])
-                                st.metric("Potential Recovery", rec['potential_recovery'])
                             with col2:
                                 st.metric("Keyword Overlap", f"{rec['keyword_overlap_count']} keywords")
                                 st.metric("Overlap %", f"{rec['keyword_overlap_percentage']}%")
                                 st.metric("Semantic Similarity", f"{rec['semantic_similarity']}%")
                             
-                            st.info(f"**Action:** {rec['action']}")
+                            st.info(f"**Action:** {rec['recommended_action']}")
                             st.info(f"**Priority:** {rec['priority']}")
-                            
-                            if len(rec['shared_keywords']) > 0:
-                                st.write("**Shared Keywords:**")
-                                st.write(", ".join(rec['shared_keywords'][:10]))
-                                if len(rec['shared_keywords']) > 10:
-                                    st.write(f"... and {len(rec['shared_keywords']) - 10} more")
                 else:
                     st.info("No URL recommendations match the current filters. Try adjusting the filters.")
             else:
