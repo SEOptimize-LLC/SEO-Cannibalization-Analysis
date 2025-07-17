@@ -28,32 +28,40 @@ A comprehensive Python-based tool for analyzing keyword cannibalization issues u
 ```bash
 git clone https://github.com/SEOptimize-LLC/SEO-Cannibalization-Analysis.git
 cd SEO-Cannibalization-Analysis
+```
 
-Install the package:
+2. Install the package:
+```bash
+pip install -e .
+```
 
-bashpip install -e .
 Or install dependencies directly:
-bashpip install -r requirements.txt
-📊 Required Data Files
-1. Google Search Console Report
+```bash
+pip install -r requirements.txt
+```
+
+## 📊 Required Data Files
+
+### 1. Google Search Console Report
 Export from GSC with these columns:
+- `query`: Search query
+- `page`: URL of the page
+- `clicks`: Number of clicks
+- `impressions`: Number of impressions
+- `position`: Average position
 
-query: Search query
-page: URL of the page
-clicks: Number of clicks
-impressions: Number of impressions
-position: Average position
-
-2. Semantic Similarity Report
+### 2. Semantic Similarity Report
 CSV file with at least these columns:
+- `Address` or `URL`: Primary URL
+- `Closest Semantically Similar Address`: Secondary URL
+- `Semantic Similarity Score`: Similarity score (0-1)
 
-Address or URL: Primary URL
-Closest Semantically Similar Address: Secondary URL
-Semantic Similarity Score: Similarity score (0-1)
+## 🚀 Usage
 
-🚀 Usage
-Command Line Interface
-bash# Basic usage
+### Command Line Interface
+
+```bash
+# Basic usage
 python main.py -g gsc_report.xlsx -s similarity_report.csv
 
 # With custom output file
@@ -61,8 +69,18 @@ python main.py -g gsc_report.xlsx -s similarity_report.csv -o results.csv
 
 # With custom config
 python main.py -g gsc_report.xlsx -s similarity_report.csv -c my_config.yaml
-Python API
-pythonfrom main import SEOCannibalizationTool
+
+# Check version
+python main.py --version
+
+# Get help
+python main.py --help
+```
+
+### Python API
+
+```python
+from main import SEOCannibalizationTool
 
 # Initialize the tool
 tool = SEOCannibalizationTool()
@@ -73,9 +91,14 @@ results = tool.run_analysis(
     similarity_file='path/to/similarity_report.csv',
     output_file='results.csv'
 )
-⚙️ Configuration
-Edit config.yaml to customize URL filtering and analysis parameters:
-yamlurl_filters:
+```
+
+## ⚙️ Configuration
+
+Edit `config.yaml` to customize URL filtering and analysis parameters:
+
+```yaml
+url_filters:
   excluded_parameters: ["?", "=", "#"]
   excluded_pages: ["privacy-policy", "terms-of-service"]
   excluded_patterns: ["/page/\\d+/", "/\\d{4}/\\d{2}/\\d{2}"]
@@ -87,102 +110,152 @@ analysis:
   priority_percentiles:
     high: 70
     medium: 30
-📈 Understanding the Output
+```
+
+## 📈 Understanding the Output
+
 The tool generates a CSV with these columns:
 
-URL Information:
+### URL Information
+- `primary_url`: Main URL being analyzed
+- `secondary_url`: Similar URL that might be cannibalizing
 
-primary_url: Main URL being analyzed
-secondary_url: Similar URL that might be cannibalizing
+### Performance Metrics
+- `*_indexed_queries`: Number of unique queries ranking
+- `*_clicks`: Total clicks received
+- `*_impressions`: Total impressions
 
+### Analysis Results
+- `similarity_score`: Semantic similarity (0-1)
+- `recommended_action`: Specific action to take
+- `priority`: High/Medium/Low based on traffic impact
 
-Performance Metrics:
+### Recommended Actions Explained
 
-*_indexed_queries: Number of unique queries ranking
-*_clicks: Total clicks received
-*_impressions: Total impressions
+| Action | Description | When Applied |
+|--------|-------------|--------------|
+| **Remove** | Both URLs have no traffic - consider removing | 0 clicks, 0 queries on both URLs |
+| **Merge** | Very similar content (≥90%) - combine into one page | High similarity + traffic on both |
+| **Redirect** | Similar content with some traffic - redirect to stronger page | <90% similarity + some traffic |
+| **Internal Link** | Different enough to keep - add contextual links | <89% similarity + good traffic |
+| **Optimize** | Low traffic but high impressions - improve content/CTR | Low clicks but decent impressions |
+| **False Positive** | No action needed | Doesn't meet other criteria |
 
+## 🎯 Best Practices
 
-Analysis Results:
+### 1. Data Quality
+- Use at least 3-6 months of GSC data
+- Include both mobile and desktop data
+- Ensure semantic similarity analysis is up-to-date
 
-similarity_score: Semantic similarity (0-1)
-recommended_action: Specific action to take
-priority: High/Medium/Low based on traffic impact
+### 2. Implementation
+- Start with High priority items
+- Test changes on staging first
+- Monitor rankings after changes
+- Allow 4-8 weeks for results
 
+### 3. Regular Audits
+- Run analysis quarterly
+- Track improvements over time
+- Update URL filters as needed
 
+## 🐛 Troubleshooting
 
-Recommended Actions Explained
+### Common Issues
 
-Remove: Both URLs have no traffic - consider removing
-Merge: Very similar content (≥90%) - combine into one page
-Redirect: Similar content with some traffic - redirect to stronger page
-Internal Link: Different enough to keep - add contextual links
-Optimize: Low traffic but high impressions - improve content/CTR
-False Positive: No action needed
+#### "File must have at least 3 columns" Error
+- Check CSV delimiter (comma vs semicolon)
+- Verify file encoding (UTF-8 recommended)
+- Ensure all required columns are present
 
-🎯 Best Practices
+#### Missing Data in Output
+- Check if URLs were filtered out
+- Verify URL format consistency between files
+- Review `config.yaml` exclusion rules
 
-Data Quality:
+#### No High Priority Items
+- May indicate good SEO health
+- Check if traffic thresholds are too high
+- Verify data completeness
 
-Use at least 3-6 months of GSC data
-Include both mobile and desktop data
-Ensure semantic similarity analysis is up-to-date
+### Debug Mode
 
+Run with verbose logging:
+```bash
+python main.py -g data.xlsx -s similarity.csv --debug
+```
 
-Implementation:
+## 📁 Project Structure
 
-Start with High priority items
-Test changes on staging first
-Monitor rankings after changes
-Allow 4-8 weeks for results
+```
+seo-cannibalization-tool/
+├── src/
+│   ├── __init__.py
+│   ├── data_loaders/
+│   │   ├── gsc_loader.py
+│   │   └── similarity_loader.py
+│   ├── processors/
+│   │   ├── url_cleaner.py
+│   │   └── data_aggregator.py
+│   ├── analyzers/
+│   │   ├── cannibalization_analyzer.py
+│   │   └── priority_calculator.py
+│   └── utils/
+│       └── config.py
+├── main.py
+├── config.yaml
+├── requirements.txt
+├── setup.py
+└── README.md
+```
 
+## 🤝 Contributing
 
-Regular Audits:
-
-Run analysis quarterly
-Track improvements over time
-Update URL filters as needed
-
-
-
-🐛 Troubleshooting
-Common Issues
-
-"File must have at least 3 columns" Error:
-
-Check CSV delimiter (comma vs semicolon)
-Verify file encoding (UTF-8 recommended)
-
-
-Missing Data in Output:
-
-Check if URLs were filtered out
-Verify URL format consistency between files
-
-
-No High Priority Items:
-
-May indicate good SEO health
-Check if traffic thresholds are too high
-
-
-
-🤝 Contributing
 We welcome contributions! Please:
 
-Fork the repository
-Create a feature branch
-Add tests for new functionality
-Submit a pull request
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-📄 License
-This project is licensed under the MIT License - see the LICENSE file for details.
-📞 Support
+### Development Setup
+
+```bash
+# Clone your fork
+git clone https://github.com/YOUR-USERNAME/SEO-Cannibalization-Analysis.git
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in development mode
+pip install -e .
+pip install pytest pytest-cov
+
+# Run tests
+pytest tests/
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 📞 Support
+
 For questions or issues:
+- 📝 Open an [issue on GitHub](https://github.com/SEOptimize-LLC/SEO-Cannibalization-Analysis/issues)
+- 📚 Review the [documentation](https://github.com/SEOptimize-LLC/SEO-Cannibalization-Analysis/wiki)
+- 💬 Check existing issues for similar problems
 
-Open an issue on GitHub
-Check existing issues for solutions
-Review the documentation
+## 🙏 Acknowledgments
 
+- Built with Python and love ❤️
+- Thanks to all contributors
+- Inspired by the SEO community
 
-Built with ❤️ by SEOptimize LLC
+---
+
+**Built by [SEOptimize LLC](https://seoptimize.com)**
+
+*Making SEO analysis smarter, one tool at a time.*
