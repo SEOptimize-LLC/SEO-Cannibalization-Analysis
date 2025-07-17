@@ -4,8 +4,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from column_mapper import normalize_column_names, validate_required_columns
-# Imports handled at function level
 
 # Page configuration
 st.set_page_config(
@@ -71,6 +69,40 @@ def init_session_state():
     if 'cleaning_stats' not in st.session_state:
         st.session_state.cleaning_stats = None
 
+def normalize_column_names(df):
+    """Normalize column names to standard format"""
+    column_mapping = {
+        'Query': 'query', 'Search Query': 'query', 'search_query': 'query',
+        'Page': 'page', 'URL': 'page', 'page_url': 'page',
+        'Clicks': 'clicks', 'Clicks (All)': 'clicks', 'clicks_all': 'clicks',
+        'Impressions': 'impressions', 'Impressions (All)': 'impressions',
+        'impressions_all': 'impressions',
+        'Position': 'position', 'Avg. Position': 'position', 'avg_position': 'position',
+    }
+    
+    new_columns = {}
+    for col in df.columns:
+        if col in column_mapping:
+            new_columns[col] = column_mapping[col]
+        else:
+            col_lower = col.lower()
+            for key, value in column_mapping.items():
+                if key.lower() == col_lower:
+                    new_columns[col] = value
+                    break
+            else:
+                new_columns[col] = col
+    
+    return df.rename(columns=new_columns)
+
+
+def validate_required_columns(df):
+    """Validate that required columns are present"""
+    required_columns = ['query', 'page', 'clicks', 'impressions', 'position']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    return len(missing_columns) == 0, missing_columns
+
+
 def clean_gsc_data(df):
     """Clean Google Search Console data by removing invalid entries"""
     initial_rows = len(df)
@@ -87,13 +119,6 @@ def clean_gsc_data(df):
         'removed_homepage': 0,
         'removed_subdomains': 0
     }
-
-    def remove_branded_keywords(df, variants):
-        if not variants:
-            return df
-        pattern = "|".join([v.lower() for v in variants])
-        mask = ~df["query"].str.lower().str.contains(pattern, na=False)
-        return df.loc[mask].copy()
 
     name_error_mask = df['query'].astype(str).str.contains(r'#NAME\?', na=False)
     cleaning_stats['removed_name_errors'] = name_error_mask.sum()
@@ -257,6 +282,37 @@ def run_cannibalization_analysis(df, brand_variants):
     scores_df['severity'] = scores_df['cannibalization_score'].apply(classify_cannibalization_severity)
     
     return df_filtered, scores_df
+
+def normalize_column_names(df):
+    """Normalize column names to standard format"""
+    column_mapping = {
+        'Query': 'query', 'Search Query': 'query', 'search_query': 'query',
+        'Page': 'page', 'URL': 'page', 'page_url': 'page',
+        'Clicks': 'clicks', 'Clicks (All)': 'clicks', 'clicks_all': 'clicks',
+        'Impressions': 'impressions', 'Impressions (All)': 'impressions', 'impressions_all': 'impressions',
+        'Position': 'position', 'Avg. Position': 'position', 'avg_position': 'position',
+    }
+    
+    new_columns = {}
+    for col in df.columns:
+        if col in column_mapping:
+            new_columns[col] = column_mapping[col]
+        else:
+            col_lower = col.lower()
+            for key, value in column_mapping.items():
+                if key.lower() == col_lower:
+                    new_columns[col] = value
+                    break
+            else:
+                new_columns[col] = col
+    
+    return df.rename(columns=new_columns)
+
+def validate_required_columns(df):
+    """Validate that required columns are present"""
+    required_columns = ['query', 'page', 'clicks', 'impressions', 'position']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    return len(missing_columns) == 0, missing_columns
 
 def run_url_consolidation_analysis(df, embeddings_df=None):
     """Run URL-level consolidation analysis"""
