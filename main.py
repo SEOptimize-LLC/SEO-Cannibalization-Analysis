@@ -345,7 +345,7 @@ def main():
                 st.session_state['gsc_data'] = df
                 st.session_state['data_loaded'] = True
                 st.session_state['cleaning_stats'] = cleaning_stats
-                st.session_state['embeddings_data'] = embeddings_df
+                st.session_state['embeddings_data'] = similarity_df
                 
                 st.markdown("### 🏷️ Brand Configuration")
                 st.markdown("Enter brand name variations to exclude:")
@@ -381,7 +381,7 @@ def main():
                     
                     url_consolidation = run_url_consolidation_analysis(
                         df, 
-                        embeddings_df
+                        similarity_df
                     )
                     
                     status_text.text("📊 Finalizing results...")
@@ -427,11 +427,11 @@ def main():
             with col4:
                 st.metric("Total Clicks", f"{df['clicks'].sum():,}")
             
-            # Show embeddings status
+            # Show similarity status
             if st.session_state.embeddings_data is not None:
-                st.success("✅ Enhanced semantic analysis enabled with embeddings")
+                st.success("✅ Enhanced semantic analysis enabled with similarity data")
             else:
-                st.info("ℹ️ Using basic semantic analysis (upload embeddings for enhanced analysis)")
+                st.info("ℹ️ Using basic semantic analysis (upload similarity data for enhanced analysis)")
             
             # Cleaning results
             if cleaning_stats and cleaning_stats['total_removed'] > 0:
@@ -478,9 +478,9 @@ def main():
             
             # Show analysis type
             if embeddings_used:
-                st.success("✅ Enhanced semantic analysis with embeddings")
+                st.success("✅ Enhanced semantic analysis with similarity data")
             else:
-                st.info("ℹ️ Basic semantic analysis (upload embeddings for enhanced results)")
+                st.info("ℹ️ Basic semantic analysis (upload similarity data for enhanced results)")
             
             if len(recommendations) > 0:
                 # Summary metrics
