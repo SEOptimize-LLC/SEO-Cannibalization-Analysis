@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from column_mapper import normalize_column_names, validate_required_columns
-from features.url_consolidation_analyzer import URLConsolidationAnalyzer
+# Imports handled at function level
 
 # Page configuration
 st.set_page_config(
@@ -260,8 +260,16 @@ def run_cannibalization_analysis(df, brand_variants):
 
 def run_url_consolidation_analysis(df, embeddings_df=None):
     """Run URL-level consolidation analysis"""
-    analyzer = URLConsolidationAnalyzer()
-    return analyzer.analyze_url_consolidation(df, embeddings_df)
+    if embeddings_df is not None:
+        # Use optimized analyzer with pre-calculated similarity data
+        from features.optimized_consolidation_analyzer import OptimizedConsolidationAnalyzer
+        analyzer = OptimizedConsolidationAnalyzer()
+        return analyzer.analyze_consolidation(df, embeddings_df)
+    else:
+        # Fallback to basic analyzer
+        from features.url_consolidation_analyzer import URLConsolidationAnalyzer
+        analyzer = URLConsolidationAnalyzer()
+        return analyzer.analyze_url_consolidation(df, embeddings_df)
 
 def main():
     """Main application function"""
@@ -373,6 +381,14 @@ def main():
                     
                     status_text.text("🔍 Analyzing URL consolidation opportunities...")
                     progress_bar.progress(50)
+                    
+                    # Performance optimization: show URL count
+                    significant_urls = df.groupby('page')['clicks'].sum()
+                    significant_urls = significant_urls[significant_urls >= 5].index
+                    if len(significant_urls) > 100:
+                        st.info(f"⚡ Optimizing: Analyzing top 100 URLs out of {len(significant_urls)} total")
+                    else:
+                        st.info(f"⚡ Analyzing {len(significant_urls)} URLs")
                     
                     url_consolidation = run_url_consolidation_analysis(
                         df, 
