@@ -4,9 +4,9 @@ Enhanced URL-level analysis with keyword overlap and semantic similarity
 """
 
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict
 from features.simple_similarity_loader import SimpleSemanticSimilarityLoader
+
 
 class URLConsolidationAnalyzer:
     """Enhanced URL consolidation analysis"""
@@ -16,7 +16,7 @@ class URLConsolidationAnalyzer:
     
     def analyze_url_consolidation(self, df: pd.DataFrame, embeddings_df: pd.DataFrame = None) -> Dict:
         """
-        Analyze URL consolidation opportunities
+        Analyze URL consolidation opportunities with performance optimization
         
         Args:
             df: DataFrame with query-page performance data
@@ -25,6 +25,9 @@ class URLConsolidationAnalyzer:
         Returns:
             Dictionary with URL consolidation analysis
         """
+        import time
+        start_time = time.time()
+        
         # Load semantic similarity data if embeddings provided
         embeddings_used = False
         if embeddings_df is not None:
@@ -40,26 +43,49 @@ class URLConsolidationAnalyzer:
             except Exception as e:
                 print(f"Could not load embeddings: {e}")
         
-        # Calculate URL-level metrics
-        url_metrics = self._calculate_url_metrics(df)
+        # Performance optimization: Filter to only URLs with significant traffic
+        # Only consider URLs with at least 5 clicks to reduce computation
+        url_clicks = df.groupby('page')['clicks'].sum()
+        significant_urls = url_clicks[url_clicks >= 5].index
         
-        # Calculate keyword overlap between URLs
-        url_overlap_matrix = self._calculate_keyword_overlap(df)
+        if len(significant_urls) == 0:
+            # Fallback to top URLs by clicks if no significant ones
+            top_urls = url_clicks.nlargest(min(50, len(url_clicks))).index
+            filtered_df = df[df['page'].isin(top_urls)]
+        else:
+            # Limit to top 50 URLs maximum for performance
+            if len(significant_urls) > 50:
+                top_urls = url_clicks[significant_urls].nlargest(50).index
+                filtered_df = df[df['page'].isin(top_urls)]
+            else:
+                filtered_df = df[df['page'].isin(significant_urls)]
+        
+        print(f"Analyzing {len(filtered_df['page'].unique())} URLs...")
+        
+        # Calculate URL-level metrics
+        url_metrics = self._calculate_url_metrics(filtered_df)
+        
+        # Calculate keyword overlap between URLs - optimized version
+        url_overlap_matrix = self._calculate_keyword_overlap_optimized(filtered_df)
         
         # Generate consolidation recommendations
         recommendations = self._generate_consolidation_recommendations(
-            df, url_metrics, url_overlap_matrix, embeddings_used
+            filtered_df, url_metrics, url_overlap_matrix, embeddings_used
         )
         
         # Create summary
         summary = self._create_summary(recommendations)
+        
+        elapsed_time = time.time() - start_time
+        print(f"Analysis completed in {elapsed_time:.2f} seconds")
         
         return {
             'recommendations': recommendations,
             'summary': summary,
             'embeddings_used': embeddings_used,
             'url_metrics': url_metrics,
-            'overlap_matrix': url_overlap_matrix
+            'overlap_matrix': url_overlap_matrix,
+            'urls_analyzed': len(url_metrics)
         }
     
     def _calculate_url_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -82,34 +108,60 @@ class URLConsolidationAnalyzer:
         return url_metrics
     
     def _calculate_keyword_overlap(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate keyword overlap between URL pairs"""
-        # Create URL-query mapping
+        """Calculate keyword overlap between URL pairs - optimized version"""
+        return self._calculate_keyword_overlap_optimized(df)
+    
+    def _calculate_keyword_overlap_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Optimized keyword overlap calculation using vectorized operations"""
+        # Create URL-query mapping efficiently
         url_queries = df.groupby('page')['query'].apply(set).to_dict()
-        
-        # Calculate overlap for all URL pairs
-        overlap_data = []
         urls = list(url_queries.keys())
         
+        if len(urls) < 2:
+            return pd.DataFrame()
+        
+        # Pre-calculate URL performance for overlapping queries
+        query_url_performance = df.groupby(['query', 'page']).agg({
+            'clicks': 'sum',
+            'impressions': 'sum'
+        }).reset_index()
+        
+        overlap_data = []
+        
+        # Use efficient iteration with early termination
         for i, url1 in enumerate(urls):
-            for url2 in urls[i+1:]:
-                queries1 = url_queries[url1]
-                queries2 = url_queries[url2]
+            queries1 = url_queries[url1]
+            if not queries1:  # Skip empty query sets
+                continue
                 
-                # Calculate overlap metrics
+            for url2 in urls[i+1:]:
+                queries2 = url_queries[url2]
+                if not queries2:  # Skip empty query sets
+                    continue
+                
+                # Calculate overlap efficiently
                 intersection = queries1.intersection(queries2)
+                if not intersection:  # Skip no-overlap pairs
+                    continue
+                
                 union = queries1.union(queries2)
                 
                 overlap_count = len(intersection)
                 total_queries1 = len(queries1)
                 total_queries2 = len(queries2)
                 
+                # Calculate percentages
                 overlap_percentage1 = (overlap_count / total_queries1 * 100) if total_queries1 > 0 else 0
                 overlap_percentage2 = (overlap_count / total_queries2 * 100) if total_queries2 > 0 else 0
                 
-                # Calculate combined performance for overlapping queries
-                overlap_queries_df = df[df['query'].isin(intersection)]
-                url1_overlap = overlap_queries_df[overlap_queries_df['page'] == url1]
-                url2_overlap = overlap_queries_df[overlap_queries_df['page'] == url2]
+                # Get performance for overlapping queries efficiently
+                overlap_queries = list(intersection)
+                overlap_performance = query_url_performance[
+                    query_url_performance['query'].isin(overlap_queries)
+                ]
+                
+                url1_overlap = overlap_performance[overlap_performance['page'] == url1]
+                url2_overlap = overlap_performance[overlap_performance['page'] == url2]
                 
                 combined_clicks = url1_overlap['clicks'].sum() + url2_overlap['clicks'].sum()
                 combined_impressions = url1_overlap['impressions'].sum() + url2_overlap['impressions'].sum()
@@ -117,7 +169,7 @@ class URLConsolidationAnalyzer:
                 overlap_data.append({
                     'url1': url1,
                     'url2': url2,
-                    'overlap_queries': list(intersection),
+                    'overlap_queries': overlap_queries,
                     'overlap_count': overlap_count,
                     'url1_total_queries': total_queries1,
                     'url2_total_queries': total_queries2,
