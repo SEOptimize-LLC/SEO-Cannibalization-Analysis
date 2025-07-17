@@ -375,13 +375,10 @@ def main():
                     status_text.text("🔍 Analyzing URL consolidation opportunities...")
                     progress_bar.progress(50)
                     
-                    # Performance optimization: show URL count
+                    # Analyzing all URLs without optimization
                     significant_urls = df.groupby('page')['clicks'].sum()
                     significant_urls = significant_urls[significant_urls >= 5].index
-                    if len(significant_urls) > 100:
-                        st.info(f"⚡ Optimizing: Analyzing top 100 URLs out of {len(significant_urls)} total")
-                    else:
-                        st.info(f"⚡ Analyzing {len(significant_urls)} URLs")
+                    st.info(f"⚡ Analyzing {len(significant_urls)} URLs")
                     
                     url_consolidation = run_url_consolidation_analysis(
                         df, 
