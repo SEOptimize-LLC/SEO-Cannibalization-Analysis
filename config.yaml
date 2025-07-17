@@ -1,0 +1,54 @@
+# URL Filtering Configuration
+url_filters:
+  # Parameters to exclude
+  excluded_parameters:
+    - "?"
+    - "="
+    - "#"
+    - "&"
+  
+  # Page patterns to exclude (case-insensitive)
+  excluded_pages:
+    - "privacy-policy"
+    - "privacy_policy"
+    - "privacypolicy"
+    - "terms-of-service"
+    - "terms_of_service"
+    - "termsofservice"
+    - "terms-and-conditions"
+    - "shipping-policy"
+    - "shipping_policy"
+    - "return-policy"
+    - "return_policy"
+    - "about-us"
+    - "about_us"
+    - "aboutus"
+    - "contact-us"
+    - "contact_us"
+    - "contactus"
+    - "legal"
+    - "disclaimer"
+    - "cookie-policy"
+    - "cookie_policy"
+  
+  # Regex patterns for exclusion
+  excluded_patterns:
+    - "/page/\\d+/"  # Paginated pages
+    - "/\\d{4}/\\d{2}/\\d{2}"  # Archive pages (YYYY/MM/DD)
+    - "^https?://[^/]*\\."  # Subdomains (anything before the main domain)
+
+# Analysis Configuration
+analysis:
+  similarity_thresholds:
+    high: 0.90  # 90% or higher
+    medium: 0.89  # 89% or lower
+  
+  # Minimum thresholds for significance
+  min_clicks: 1
+  min_queries: 1
+  
+  # Priority calculation percentiles
+  priority_percentiles:
+    high: 70  # Top 30%
+    medium: 30  # Middle 40%
+    # Low: Bottom 30%
