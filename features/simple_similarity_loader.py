@@ -1,94 +1,160 @@
 """
 Simple Semantic Similarity Loader
-Loads semantic similarity scores from CSV files for URL consolidation analysis
+Handles semantic similarity data loading and scoring
 """
 
 import pandas as pd
-from typing import Dict, Tuple, Optional
-import os
+import numpy as np
+from typing import Dict, Optional
+
 
 class SimpleSemanticSimilarityLoader:
-    """Load semantic similarity scores from CSV files"""
+    """Simple loader for semantic similarity data"""
     
-    def __init__(self, similarity_file: str = None):
+    def __init__(self):
         self.similarity_data = {}
-        self.similarity_file = similarity_file
-        
-    def load_similarity_data(self, file_path: str = None) -> Dict[Tuple[str, str], float]:
+        self.url_mapping = {}
+    
+    def load_similarity_data(self, file_path: str) -> bool:
         """
-        Load semantic similarity data from CSV file
+        Load semantic similarity data from CSV
         
         Args:
-            file_path: Path to CSV file with semantic similarity data
+            file_path: Path to the CSV file
             
         Returns:
-            Dictionary mapping URL pairs to similarity scores
+            True if loaded successfully, False otherwise
         """
-        if file_path is None:
-            file_path = self.similarity_file
-            
-        if not file_path or not os.path.exists(file_path):
-            return {}
-        
         try:
-            # Try to load the CSV file
             df = pd.read_csv(file_path)
             
-            # Check required columns
-            required_columns = ['Address', 'Closest Semantically Similar Address', 'Semantic Similarity Score']
-            if not all(col in df.columns for col in required_columns):
-                print(f"Warning: CSV missing required columns. Expected: {required_columns}")
-                return {}
+            # Handle different column naming conventions
+            if 'Address' in df.columns and 'Closest Semantically Similar Address' in df.columns:
+                # Standard format
+                for _, row in df.iterrows():
+                    url1 = str(row['Address'])
+                    url2 = str(row['Closest Semantically Similar Address'])
+                    similarity = float(row.get('Semantic Similarity Score', 0.5))
+                    
+                    # Store bidirectional mapping
+                    if url1 not in self.similarity_data:
+                        self.similarity_data[url1] = {}
+                    if url2 not in self.similarity_data:
+                        self.similarity_data[url2] = {}
+                    
+                    self.similarity_data[url1][url2] = similarity
+                    self.similarity_data[url2][url1] = similarity
+                    
+            elif 'url1' in df.columns and 'url2' in df.columns:
+                # Alternative format
+                for _, row in df.iterrows():
+                    url1 = str(row['url1'])
+                    url2 = str(row['url2'])
+                    similarity = float(row.get('similarity', 0.5))
+                    
+                    if url1 not in self.similarity_data:
+                        self.similarity_data[url1] = {}
+                    if url2 not in self.similarity_data:
+                        self.similarity_data[url2] = {}
+                    
+                    self.similarity_data[url1][url2] = similarity
+                    self.similarity_data[url2][url1] = similarity
             
-            # Build similarity dictionary
-            similarity_dict = {}
-            for _, row in df.iterrows():
-                url1 = row['Address']
-                url2 = row['Closest Semantically Similar Address']
-                score = float(str(row['Semantic Similarity Score']).replace(',', '.'))
-                
-                # Store both directions
-                similarity_dict[(url1, url2)] = score
-                similarity_dict[(url2, url1)] = score
+            else:
+                # Try to find URL columns
+                url_cols = [col for col in df.columns if 'url' in col.lower()]
+                if len(url_cols) >= 2:
+                    url1_col, url2_col = url_cols[:2]
+                    similarity_col = None
+                    
+                    for col in df.columns:
+                        if 'similarity' in col.lower():
+                            similarity_col = col
+                            break
+                    
+                    if similarity_col is None:
+                        similarity_col = df.columns[-1]  # Last column as similarity
+                    
+                    for _, row in df.iterrows():
+                        url1 = str(row[url1_col])
+                        url2 = str(row[url2_col])
+                        similarity = float(row[similarity_col])
+                        
+                        if url1 not in self.similarity_data:
+                            self.similarity_data[url1] = {}
+                        if url2 not in self.similarity_data:
+                            self.similarity_data[url2] = {}
+                        
+                        self.similarity_data[url1][url2] = similarity
+                        self.similarity_data[url2][url1] = similarity
             
-            self.similarity_data = similarity_dict
-            print(f"Loaded {len(similarity_dict)} similarity scores from {file_path}")
-            return similarity_dict
+            return True
             
         except Exception as e:
-            print(f"Error loading similarity data: {str(e)}")
-            return {}
+            print(f"Error loading similarity data: {e}")
+            return False
     
     def get_similarity_score(self, url1: str, url2: str) -> float:
-        """Get similarity score for a URL pair"""
-        return self.similarity_data.get((url1, url2), 0.0)
+        """
+        Get similarity score between two URLs
+        
+        Args:
+            url1: First URL
+            url2: Second URL
+            
+        Returns:
+            Similarity score (0-1), defaults to 0.5 if not found
+        """
+        if url1 in self.similarity_data and url2 in self.similarity_data[url1]:
+            return self.similarity_data[url1][url2]
+        
+        # Fallback to basic similarity calculation
+        return self._calculate_basic_similarity(url1, url2)
     
-    def get_similar_urls(self, url: str, threshold: float = 0.8) -> Dict[str, float]:
-        """Get all URLs similar to the given URL above threshold"""
-        similar = {}
-        for (u1, u2), score in self.similarity_data.items():
-            if u1 == url and score >= threshold:
-                similar[u2] = score
-        return similar
+    def _calculate_basic_similarity(self, url1: str, url2: str) -> float:
+        """
+        Calculate basic similarity based on URL structure
+        
+        Args:
+            url1: First URL
+            url2: Second URL
+            
+        Returns:
+            Basic similarity score (0-1)
+        """
+        # Simple similarity based on URL path overlap
+        path1 = url1.split('://')[-1].split('?')[0]
+        path2 = url2.split('://')[-1].split('?')[0]
+        
+        # Split into components
+        parts1 = path1.lower().split('/')
+        parts2 = path2.lower().split('/')
+        
+        # Calculate Jaccard similarity
+        set1 = set(parts1)
+        set2 = set(parts2)
+        
+        if not set1 and not set2:
+            return 0.0
+        
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        
+        similarity = intersection / union if union > 0 else 0.0
+        
+        # Boost similarity for exact domain matches
+        domain1 = url1.split('://')[-1].split('/')[0]
+        domain2 = url2.split('://')[-1].split('/')[0]
+        
+        if domain1 == domain2:
+            similarity = min(similarity + 0.2, 1.0)
+        
+        return similarity
     
-    def create_similarity_matrix(self, urls: list) -> Dict[Tuple[str, str], float]:
-        """Create similarity matrix for given URLs"""
-        matrix = {}
-        for i, url1 in enumerate(urls):
-            for url2 in urls[i+1:]:
-                score = self.get_similarity_score(url1, url2)
-                if score > 0:
-                    matrix[(url1, url2)] = score
-                    matrix[(url2, url1)] = score
-        return matrix
+    def has_data(self) -> bool:
+        """Check if similarity data has been loaded"""
+        return len(self.similarity_data) > 0
     
-    def get_average_similarity(self, url: str) -> float:
-        """Get average similarity score for a URL"""
-        scores = [score for (u1, u2), score in self.similarity_data.items() 
-                 if u1 == url or u2 == url]
-        return sum(scores) / len(scores) if scores else 0.0
-    
-    def get_top_similar_urls(self, url: str, top_n: int = 5) -> list:
-        """Get top N most similar URLs"""
-        similar = self.get_similar_urls(url, threshold=0.0)
-        return sorted(similar.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    def get_available_urls(self) -> list:
+        """Get list of URLs with similarity data"""
+        return list(self.similarity_data.keys())
