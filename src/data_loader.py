@@ -1,9 +1,8 @@
 """
-Data loading and validation module
+Data loading and validation module - handles exact file formats
 """
 
 import pandas as pd
-from typing import Tuple
 
 
 class DataLoader:
@@ -20,14 +19,14 @@ class DataLoader:
             
             # Normalize column names
             column_mapping = {
-                'Query': 'query', 'Search Query': 'query', 'search_query': 'query',
-                'Page': 'page', 'URL': 'page', 'url': 'page', 'landing_page': 'page',
+                'Query': 'query', 'Search Query': 'query',
+                'Page': 'page', 'URL': 'page', 'url': 'page',
                 'Clicks': 'clicks', 'clicks': 'clicks',
                 'Impressions': 'impressions', 'impressions': 'impressions',
-                'Position': 'position', 'Avg. Position': 'position', 'position': 'position'
+                'Position': 'position', 'Avg. Position': 'position'
             }
             
-            df = df.rename(columns={k: v for k, v in column_mapping.items() 
+            df = df.rename(columns={k: v for k, v in column_mapping.items()
                                   if k in df.columns})
             
             required_cols = ['query', 'page', 'clicks', 'impressions']
@@ -42,19 +41,30 @@ class DataLoader:
     
     @staticmethod
     def load_similarity(file) -> pd.DataFrame:
-        """Load semantic similarity report"""
+        """Load semantic similarity report with flexible column handling"""
         try:
             if file.name.endswith('.csv'):
                 df = pd.read_csv(file)
             else:
                 df = pd.read_excel(file)
             
-            # Map to standard column names
-            if len(df.columns) >= 3:
-                df = df.iloc[:, :3]  # Take first 3 columns
+            # Handle exact column names from your file
+            if 'Address' in df.columns and 'Closest Semantically Similar Address' in df.columns:
+                # Exact column names from your file
+                df = df[['Address', 'Closest Semantically Similar Address',
+                         'Semantic Similarity Score']]
+                df.columns = ['primary_url', 'secondary_url', 'semantic_similarity']
+            elif len(df.columns) >= 3:
+                # Take first 3 columns and map them
+                df = df.iloc[:, :3]
                 df.columns = ['primary_url', 'secondary_url', 'semantic_similarity']
             else:
-                raise ValueError("Similarity file needs at least 3 columns")
+                raise ValueError("File must have at least 3 columns")
+            
+            # Ensure semantic_similarity is numeric
+            df['semantic_similarity'] = pd.to_numeric(
+                df['semantic_similarity'], errors='coerce')
+            df = df.dropna(subset=['semantic_similarity'])
             
             return df
             
