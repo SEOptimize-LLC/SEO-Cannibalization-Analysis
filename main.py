@@ -282,11 +282,11 @@ def main():
             help="Select your Google Search Console export file"
         )
         
-        # Embeddings Upload (Optional)
-        embeddings_file = st.file_uploader(
-            "Choose embeddings CSV file (optional)",
+        # Semantic Similarity Upload (Optional)
+        similarity_file = st.file_uploader(
+            "Choose semantic similarity CSV file (optional)",
             type=['csv'],
-            help="Upload URL embeddings for enhanced semantic similarity analysis"
+            help="Upload pre-calculated URL similarity scores (url1, url2, similarity format)"
         )
         
         if uploaded_file is not None:
@@ -325,19 +325,19 @@ def main():
                     st.info("Columns: " + ", ".join(df.columns))
                     return
                 
-                # Process embeddings file if provided
-                embeddings_df = None
-                if embeddings_file is not None:
+                # Process similarity file if provided
+                similarity_df = None
+                if similarity_file is not None:
                     try:
-                        embeddings_df = pd.read_csv(embeddings_file)
-                        st.success("✓ Embeddings file loaded successfully")
+                        similarity_df = pd.read_csv(similarity_file)
+                        st.success("✓ Similarity file loaded successfully")
                         
-                        # Show embeddings info
-                        st.info(f"📊 Embeddings: {len(embeddings_df)} URLs, {len(embeddings_df.columns)-1} dimensions")
+                        # Show similarity file info
+                        st.info(f"📊 Similarity pairs: {len(similarity_df)} URL pairs")
                         
                     except Exception as e:
-                        st.warning(f"⚠️ Could not load embeddings: {str(e)}")
-                        embeddings_df = None
+                        st.warning(f"⚠️ Could not load similarity file: {str(e)}")
+                        similarity_df = None
                 
                 with st.spinner("🧹 Cleaning data..."):
                     df, cleaning_stats = clean_gsc_data(df)
@@ -375,10 +375,9 @@ def main():
                     status_text.text("🔍 Analyzing URL consolidation opportunities...")
                     progress_bar.progress(50)
                     
-                    # Analyzing all URLs without optimization
-                    significant_urls = df.groupby('page')['clicks'].sum()
-                    significant_urls = significant_urls[significant_urls >= 5].index
-                    st.info(f"⚡ Analyzing {len(significant_urls)} URLs")
+                    # Analyzing all URLs from GSC data
+                    all_urls = df['page'].unique()
+                    st.info(f"⚡ Analyzing {len(all_urls)} URLs from GSC data")
                     
                     url_consolidation = run_url_consolidation_analysis(
                         df, 
