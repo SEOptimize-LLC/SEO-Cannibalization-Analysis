@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime
 from column_mapper import normalize_column_names, validate_required_columns
 from features.url_consolidation_analyzer import URLConsolidationAnalyzer
+from features.simple_similarity_loader import SimpleSimilarityLoader
 
 # Page configuration
 st.set_page_config(
