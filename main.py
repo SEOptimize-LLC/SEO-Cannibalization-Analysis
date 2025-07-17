@@ -554,10 +554,10 @@ def main():
                     
                     # Display recommendations
                     display_cols = [
-                        'primary_url', 'secondary_url', 'action', 'priority',
-                        'keyword_overlap_count', 'keyword_overlap_percentage',
-                        'semantic_similarity', 'primary_clicks', 'secondary_clicks',
-                        'potential_recovery', 'shared_keywords'
+                        'primary_url', 'primary_indexed_queries', 'primary_clicks', 'primary_impressions',
+                        'secondary_url', 'secondary_indexed_queries', 'secondary_clicks', 'secondary_impressions',
+                        'semantic_similarity', 'keyword_overlap_count', 'keyword_overlap_percentage',
+                        'recommended_action', 'priority'
                     ]
                     
                     st.dataframe(
