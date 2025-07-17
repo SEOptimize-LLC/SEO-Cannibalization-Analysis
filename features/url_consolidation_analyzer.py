@@ -154,7 +154,10 @@ class URLConsolidationAnalyzer:
         
         # Calculate TF-IDF vectors
         try:
-            tfidf_matrix = self.vectorizer.fit_transform(documents)
+            # Use a simpler vectorizer to avoid issues
+            from sklearn.feature_extraction.text import CountVectorizer
+            vectorizer = CountVectorizer(max_features=500, stop_words='english')
+            tfidf_matrix = vectorizer.fit_transform(documents)
             similarity_matrix = cosine_similarity(tfidf_matrix)
             
             # Create similarity dictionary
@@ -162,12 +165,13 @@ class URLConsolidationAnalyzer:
             for i, url1 in enumerate(urls):
                 for j, url2 in enumerate(urls):
                     if i < j:  # Only store unique pairs
-                        similarity_scores[(url1, url2)] = round(similarity_matrix[i][j] * 100, 2)
+                        similarity = max(0, similarity_matrix[i][j])  # Ensure non-negative
+                        similarity_scores[(url1, url2)] = round(similarity * 100, 2)
             
             return similarity_scores
-        except:
-            # Fallback to simple keyword overlap similarity
-            return self._calculate_simple_similarity(df)
+        except Exception as e:
+            # Use a more robust simple similarity
+            return self._calculate_robust_similarity(df)
     
     def _calculate_simple_similarity(self, df: pd.DataFrame) -> Dict:
         """Calculate simple similarity based on keyword overlap"""
@@ -186,6 +190,37 @@ class URLConsolidationAnalyzer:
                     
                     similarity = (len(intersection) / len(union) * 100) if len(union) > 0 else 0
                     similarity_scores[(url1, url2)] = round(similarity, 2)
+        
+        return similarity_scores
+
+    def _calculate_robust_similarity(self, df: pd.DataFrame) -> Dict:
+        """Calculate robust similarity when TF-IDF fails"""
+        url_queries = df.groupby('page')['query'].apply(set).to_dict()
+        similarity_scores = {}
+        
+        urls = list(url_queries.keys())
+        for i, url1 in enumerate(urls):
+            for j, url2 in enumerate(urls):
+                if i < j:
+                    queries1 = url_queries[url1]
+                    queries2 = url_queries[url2]
+                    
+                    # Calculate Jaccard similarity
+                    intersection = len(queries1.intersection(queries2))
+                    union = len(queries1.union(queries2))
+                    
+                    if union > 0:
+                        jaccard_similarity = (intersection / union) * 100
+                    else:
+                        jaccard_similarity = 0
+                    
+                    # Also calculate overlap coefficient for additional context
+                    min_queries = min(len(queries1), len(queries2))
+                    overlap_coefficient = (intersection / min_queries * 100) if min_queries > 0 else 0
+                    
+                    # Use average of both metrics
+                    final_similarity = (jaccard_similarity + overlap_coefficient) / 2
+                    similarity_scores[(url1, url2)] = round(final_similarity, 2)
         
         return similarity_scores
     
