@@ -1,113 +1,86 @@
-# SEO Cannibalization Analysis Tool
+## __SEO Cannibalization Analysis Tool - Overview__
 
-A modular Python tool built from scratch for analyzing keyword cannibalization using Google Search Console data and semantic similarity reports.
+This is a sophisticated __Streamlit-based web application__ that analyzes __keyword cannibalization issues__ using Google Search Console (GSC) data. The tool helps SEO professionals identify when multiple pages on a website compete for the same keywords, potentially diluting search performance.
 
-## 🎯 Features
+## __Core Purpose & Functionality__
 
-- **Exact column mapping** as specified:
-  - Address → primary_url
-  - Closest Semantically Similar Address → secondary_url
-  - Semantic Similarity Score → semantic_similarity (2 decimal places)
+### __Primary Goal__
 
-- **Smart URL filtering** removes:
-  - URLs with parameters (=, ?, #, &)
-  - Legal pages (privacy, terms, shipping, etc.)
-  - About/Contact pages
-  - Subdomains
-  - Paginated pages (/page/1/, /page/2/)
-  - Archive pages (/2025/07/25)
-  - Other unwanted patterns
+Identify and resolve keyword cannibalization issues to improve organic search performance by:
 
-- **Precise action classification** based on exact rules:
-  - **Remove**: Both URLs have 0 clicks and 0 indexed keywords
-  - **Merge**: 90%+ similarity with at least 1 click and 1 keyword
-  - **Redirect**: <90% similarity with at least 1 click and 1 keyword
-  - **Internal Link**: ≤89% similarity with significant traffic
-  - **Optimize**: ≤89% similarity, low traffic, decent impressions
-  - **False Positive**: Default for edge cases
+- Detecting when multiple URLs target identical keywords
+- Providing actionable consolidation recommendations
+- Prioritizing fixes based on traffic impact
 
-- **Priority assignment** based on traffic potential:
-  - **High**: Traffic score ≥ 100
-  - **Medium**: Traffic score ≥ 10
-  - **Low**: Traffic score < 10
+### __Key Features__
 
-## 📁 Project Structure
+1. __Data Processing & Cleaning__
 
-```
-SEO-Cannibalization-Analysis/
-├── main.py                 # Main Streamlit orchestrator
-├── requirements.txt        # Dependencies
-├── README.md              # This file
-└── src/
-    ├── data_loader.py      # File loading and validation
-    ├── url_filter.py       # URL filtering logic
-    ├── metrics_calculator.py  # GSC metrics calculation
-    ├── action_classifier.py   # Action classification rules
-    ├── priority_assigner.py   # Priority assignment logic
-    └── report_generator.py    # Final report generation
-```
+   - Accepts Google Search Console CSV exports
+   - Normalizes column names automatically
+   - Filters out branded keywords, spam, and invalid data
+   - Handles various CSV formats and delimiters
 
-## 🚀 Installation & Usage
+2. __Cannibalization Detection__
 
-### 1. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+   - Identifies queries where multiple pages receive clicks
 
-### 2. Run the Application
-```bash
-streamlit run main.py
-```
+   - Uses statistical thresholds (minimum 10% click distribution)
 
-### 3. Upload Files
-- **Google Search Console Report**: CSV/Excel with columns: query, page, clicks, impressions
-- **Semantic Similarity Report**: CSV/Excel with columns: Address, Closest Semantically Similar Address, Semantic Similarity Score
+   - Calculates cannibalization scores based on:
 
-### 4. Download Results
-- Complete analysis in exact format
-- Actionable recommendations for each URL pair
-- Priority-based sorting
+     - Number of competing pages
+     - Click distribution entropy
+     - Traffic volume potential
 
-## 📊 Output Format
+3. __URL Consolidation Analysis__
 
-The final report contains exactly these columns:
+   - Analyzes semantic similarity between URLs
+   - Provides specific recommendations: Merge, Redirect, Optimize, Internal Link, Monitor
+   - Prioritizes actions based on traffic recovery potential
 
-| Column | Description |
-|--------|-------------|
-| primary_url | Primary URL from similarity report |
-| primary_url_indexed_queries | Number of queries ranking for primary URL |
-| primary_url_clicks | Total clicks for primary URL |
-| primary_url_impressions | Total impressions for primary URL |
-| secondary_url | Secondary URL from similarity report |
-| secondary_url_indexed_queries | Number of queries ranking for secondary URL |
-| secondary_url_clicks | Total clicks for secondary URL |
-| secondary_url_impressions | Total impressions for secondary URL |
-| semantic_similarity | Similarity score (2 decimal places) |
-| recommended_action | Action recommendation |
-| priority | Priority level (High/Medium/Low) |
+4. __Interactive Dashboard__
 
-## 🎯 Action Rules Summary
+   - Real-time analysis with progress indicators
+   - Filterable recommendations by action type and priority
+   - Downloadable CSV reports
+   - Visual metrics and summaries
 
-| Action | Similarity | Clicks | Keywords | Additional Conditions |
-|--------|------------|--------|----------|----------------------|
-| Remove | Any | 0 | 0 | Both URLs must have 0 |
-| Merge | ≥90% | ≥1 | ≥1 | Both URLs must have ≥1 |
-| Redirect | <90% | ≥1 | ≥1 | Both URLs must have ≥1 |
-| Internal Link | ≤89% | >1 | >1 | Significant traffic |
-| Optimize | ≤89% | ≤1 | ≤1 | Impressions > 100 |
-| False Positive | Any | Any | Any | Default fallback |
+## __Technical Architecture__
 
-## 🔧 Technical Details
+### __Input Requirements__
 
-- **Built with**: Python, Streamlit, Pandas
-- **Architecture**: Modular, extensible design
-- **Error handling**: Comprehensive validation and user feedback
-- **Performance**: Optimized for large datasets
-- **Compatibility**: Works with CSV and Excel files
+- __Primary__: Google Search Console CSV with columns: `page`, `query`, `clicks`, `impressions`, `position`
+- __Optional__: Semantic similarity CSV for enhanced analysis
 
-## 📈 Example Usage
+### __Analysis Pipeline__
 
-1. Export GSC data: Search Results → Export → CSV
-2. Run semantic similarity analysis on your URLs
-3. Upload both files to the tool
-4. Get actionable recommendations for URL consolidation
+1. __Data Cleaning__: Removes invalid URLs, parameters, subdomains
+2. __Brand Filtering__: Excludes branded keyword variations
+3. __Cannibalization Detection__: Identifies competing pages
+4. __URL Analysis__: Evaluates consolidation opportunities
+5. __Priority Assignment__: Ranks fixes by impact potential
+
+### __Output Deliverables__
+
+- __Cannibalization Summary__: Overview of affected queries
+- __URL Consolidation Report__: Specific merge/redirect recommendations
+- __Priority Matrix__: Ranked list of issues by impact and ease of fix
+- __Detailed Metrics__: Click distribution, traffic estimates, semantic similarity scores
+
+## __Use Cases__
+
+- __Content Audits__: Identify redundant competing content
+- __Site Migrations__: Detect cannibalization before/after changes
+- __Content Strategy__: Plan new content to avoid keyword conflicts
+- __Performance Optimization__: Improve underperforming pages
+- __Competitive Analysis__: Understand internal competition patterns
+
+## __Advanced Capabilities__
+
+- __Semantic Analysis__: Uses pre-calculated URL similarity scores for enhanced recommendations
+- __Traffic Recovery Estimation__: Predicts potential traffic gains from consolidation
+- __Multi-layered Filtering__: Brand exclusion, click thresholds, statistical validation
+- __Export Functionality__: Generates actionable CSV reports for implementation
+
+The tool is designed for SEO professionals, content strategists, and digital marketers who need to optimize their website's search performance by eliminating internal keyword competition.
