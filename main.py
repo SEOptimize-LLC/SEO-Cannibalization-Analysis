@@ -375,9 +375,9 @@ def main():
                     status_text.text("🔍 Analyzing URL consolidation opportunities...")
                     progress_bar.progress(50)
                     
-                    # Analyzing all URLs from GSC data
-                    all_urls = df['page'].unique()
-                    st.info(f"⚡ Analyzing {len(all_urls)} URLs from GSC data")
+                    # Analyzing unique URLs from GSC data
+                    unique_urls = df['page'].unique()
+                    st.info(f"⚡ Analyzing {len(unique_urls)} unique URLs from GSC data")
                     
                     url_consolidation = run_url_consolidation_analysis(
                         df, 
