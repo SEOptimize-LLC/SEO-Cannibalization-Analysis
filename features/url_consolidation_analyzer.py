@@ -43,23 +43,8 @@ class URLConsolidationAnalyzer:
             except Exception as e:
                 print(f"Could not load embeddings: {e}")
         
-        # Performance optimization: Filter to only URLs with significant traffic
-        # Only consider URLs with at least 5 clicks to reduce computation
-        url_clicks = df.groupby('page')['clicks'].sum()
-        significant_urls = url_clicks[url_clicks >= 5].index
-        
-        if len(significant_urls) == 0:
-            # Fallback to top URLs by clicks if no significant ones
-            top_urls = url_clicks.nlargest(min(50, len(url_clicks))).index
-            filtered_df = df[df['page'].isin(top_urls)]
-        else:
-            # Limit to top 50 URLs maximum for performance
-            if len(significant_urls) > 50:
-                top_urls = url_clicks[significant_urls].nlargest(50).index
-                filtered_df = df[df['page'].isin(top_urls)]
-            else:
-                filtered_df = df[df['page'].isin(significant_urls)]
-        
+        # Use all URLs from the dataset - no artificial limit
+        filtered_df = df
         print(f"Analyzing {len(filtered_df['page'].unique())} URLs...")
         
         # Calculate URL-level metrics
@@ -120,12 +105,6 @@ class URLConsolidationAnalyzer:
         if len(urls) < 2:
             return pd.DataFrame()
         
-        # Pre-calculate URL performance for overlapping queries
-        query_url_performance = df.groupby(['query', 'page']).agg({
-            'clicks': 'sum',
-            'impressions': 'sum'
-        }).reset_index()
-        
         overlap_data = []
         
         # Use efficient iteration with early termination
@@ -144,8 +123,6 @@ class URLConsolidationAnalyzer:
                 if not intersection:  # Skip no-overlap pairs
                     continue
                 
-                union = queries1.union(queries2)
-                
                 overlap_count = len(intersection)
                 total_queries1 = len(queries1)
                 total_queries2 = len(queries2)
@@ -154,17 +131,7 @@ class URLConsolidationAnalyzer:
                 overlap_percentage1 = (overlap_count / total_queries1 * 100) if total_queries1 > 0 else 0
                 overlap_percentage2 = (overlap_count / total_queries2 * 100) if total_queries2 > 0 else 0
                 
-                # Get performance for overlapping queries efficiently
                 overlap_queries = list(intersection)
-                overlap_performance = query_url_performance[
-                    query_url_performance['query'].isin(overlap_queries)
-                ]
-                
-                url1_overlap = overlap_performance[overlap_performance['page'] == url1]
-                url2_overlap = overlap_performance[overlap_performance['page'] == url2]
-                
-                combined_clicks = url1_overlap['clicks'].sum() + url2_overlap['clicks'].sum()
-                combined_impressions = url1_overlap['impressions'].sum() + url2_overlap['impressions'].sum()
                 
                 overlap_data.append({
                     'url1': url1,
@@ -174,10 +141,7 @@ class URLConsolidationAnalyzer:
                     'url1_total_queries': total_queries1,
                     'url2_total_queries': total_queries2,
                     'overlap_percentage_url1': round(overlap_percentage1, 2),
-                    'overlap_percentage_url2': round(overlap_percentage2, 2),
-                    'combined_overlap_clicks': combined_clicks,
-                    'combined_overlap_impressions': combined_impressions,
-                    'jaccard_similarity': round((len(intersection) / len(union) * 100) if len(union) > 0 else 0, 2)
+                    'overlap_percentage_url2': round(overlap_percentage2, 2)
                 })
         
         return pd.DataFrame(overlap_data)
@@ -207,10 +171,6 @@ class URLConsolidationAnalyzer:
             # Get semantic similarity score
             semantic_similarity = self.similarity_loader.get_similarity_score(primary_url, secondary_url)
             
-            # Calculate consolidation metrics
-            total_combined_clicks = primary_metrics['total_clicks'] + secondary_metrics['total_clicks']
-            total_combined_impressions = primary_metrics['total_impressions'] + secondary_metrics['total_impressions']
-            
             # Traffic recovery estimate (70% of secondary URL clicks)
             potential_recovery = int(secondary_metrics['total_clicks'] * 0.7)
             
@@ -227,19 +187,13 @@ class URLConsolidationAnalyzer:
                 'primary_indexed_queries': primary_metrics['num_queries'],
                 'primary_clicks': primary_metrics['total_clicks'],
                 'primary_impressions': primary_metrics['total_impressions'],
-                'primary_avg_position': primary_metrics['avg_position'],
                 'secondary_url': secondary_url,
                 'secondary_indexed_queries': secondary_metrics['num_queries'],
                 'secondary_clicks': secondary_metrics['total_clicks'],
                 'secondary_impressions': secondary_metrics['total_impressions'],
-                'secondary_avg_position': secondary_metrics['avg_position'],
                 'keyword_overlap_count': overlap['overlap_count'],
                 'keyword_overlap_percentage': max(overlap['overlap_percentage_url1'], overlap['overlap_percentage_url2']),
-                'jaccard_similarity': overlap['jaccard_similarity'],
-                'semantic_similarity': semantic_similarity,
-                'combined_clicks': total_combined_clicks,
-                'combined_impressions': total_combined_impressions,
-                'potential_traffic_recovery': potential_recovery,
+                'semantic_similarity': round(semantic_similarity, 2),
                 'recommended_action': recommended_action,
                 'priority': priority
             })
