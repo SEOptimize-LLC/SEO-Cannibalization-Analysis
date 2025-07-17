@@ -98,8 +98,16 @@ class URLConsolidationAnalyzer:
     
     def _calculate_keyword_overlap_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         """Optimized keyword overlap calculation using vectorized operations"""
+        # Performance optimization: limit to URLs with significant traffic
+        url_clicks = df.groupby('page')['clicks'].sum()
+        significant_urls = url_clicks[url_clicks >= 5].index
+        
+        if len(significant_urls) > 200:
+            # Take top 200 URLs by clicks for performance
+            significant_urls = url_clicks.nlargest(200).index
+        
         # Create URL-query mapping efficiently
-        url_queries = df.groupby('page')['query'].apply(set).to_dict()
+        url_queries = df[df['page'].isin(significant_urls)].groupby('page')['query'].apply(set).to_dict()
         urls = list(url_queries.keys())
         
         if len(urls) < 2:
