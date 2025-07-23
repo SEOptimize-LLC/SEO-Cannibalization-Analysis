@@ -1,35 +1,169 @@
-# config.yaml - CONSERVATIVE URL filtering (replace your current config)
+# config.yaml - Enhanced conservative configuration with legal pages and parameter exclusions
 url_filters:
-  # Only exclude obvious tracking parameters
+  # Enhanced tracking and campaign parameters 
   excluded_parameters:
     - "utm_source"
     - "utm_medium" 
     - "utm_campaign"
+    - "utm_term"
+    - "utm_content"
     - "fbclid"
     - "gclid"
+    - "msclkid"
     - "sessionid"
+    - "sid"
+    - "ref"
+    - "source"
+    - "medium"
+    - "campaign"
+    - "_ga"
+    - "_gid"
+    - "mc_cid"
+    - "mc_eid"
+    - "affiliate_id"
+    - "partner_id"
+    - "click_id"
+    # NEW: Generic parameter characters (user requested)
+    - "?"
+    - "="
+    - "#" 
+    - "&"
     
-  # Only exclude clear admin/system pages
+  # Enhanced administrative, system, and legal pages
   excluded_pages:
+    # System and admin pages
     - "/wp-admin/"
+    - "/wp-login.php"
     - "/admin/"
+    - "/administrator/"
     - "/login"
     - "/logout"
+    - "/signin"
+    - "/signout"
     - "/404.html"
+    - "/500.html"
+    - "/error"
+    - "/maintenance"
+    - "/coming-soon"
+    - "/under-construction"
+    - "/robots.txt"
+    - "/sitemap.xml"
+    - "/sitemap_index.xml"
+    - "/.well-known/"
+    - "/wp-content/uploads/"
+    - "/wp-includes/"
+    - "/wp-json/"
+    - "/xmlrpc.php"
+    - "/wp-cron.php"
+    - "/feed/"
+    - "/rss/"
+    - "/atom/"
+    - "/comment-page-"
+    - "/trackback/"
+    - "/attachment/"
     
-  # Minimal regex patterns (VERY SPECIFIC)
+    # NEW: Legal and internal pages (user requested - case-insensitive matching)
+    - "privacy-policy"
+    - "privacy_policy"
+    - "privacypolicy"
+    - "terms-of-service"
+    - "terms_of_service"
+    - "termsofservice"
+    - "terms-and-conditions"
+    - "shipping-policy"
+    - "shipping_policy"
+    - "return-policy"
+    - "return_policy"
+    - "about-us"
+    - "about_us"
+    - "aboutus"
+    - "contact-us"
+    - "contact_us"
+    - "contactus"
+    - "legal"
+    - "disclaimer"
+    - "cookie-policy"
+    - "cookie_policy"
+    
+  # Enhanced regex patterns (specific and safe)
   excluded_patterns:
-    - "^.*/wp-admin/.*$"    # WordPress admin only
-    - "^.*/feed/?$"         # RSS feeds only
-    - "^.*\\?p=\\d+$"       # WP pagination only
+    # WordPress specific
+    - "^.*/wp-admin/.*$"
+    - "^.*/wp-login\\.php.*$"
+    - "^.*/wp-json/.*$"
+    - "^.*/wp-content/uploads/.*\\.(js|css|png|jpg|jpeg|gif|svg|pdf|doc|docx)$"
+    
+    # Pagination and search
+    - "^.*\\?p=\\d+$"
+    - "^.*\\?page=\\d+$"
+    - "^.*/page/\\d+/?$"
+    - "^.*\\?s=.*$"
+    - "^.*/search/.*$"
+    
+    # Date-based archives (careful implementation)
+    - "^.*/\\d{4}/\\d{2}/?$"
+    - "^.*/\\d{4}/\\d{2}/\\d{2}/?$"
+    
+    # Feeds and APIs
+    - "^.*/feed/?$"
+    - "^.*/rss/?$"
+    - "^.*/atom/?$"
+    - "^.*/api/.*$"
+    - "^.*/rest/.*$"
+    
+    # File downloads
+    - "^.*\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|tar|gz)$"
+    - "^.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$"
+    
+    # Comments and interactions
+    - "^.*/comment-page-\\d+.*$"
+    - "^.*#comment-\\d+$"
+    - "^.*/trackback/?$"
+    
+    # E-commerce specific
+    - "^.*/cart/?$"
+    - "^.*/checkout/?$"
+    - "^.*/my-account/?$"
+    - "^.*/order-tracking/?$"
+    - "^.*/wishlist/?$"
+    
+    # Development and staging
+    - "^.*\\.(dev|test|staging|local)\\."
+    - "^.*/dev/.*$"
+    - "^.*/test/.*$"
+    - "^.*/staging/.*$"
+    
+    # NEW: Legal pages pattern matching (case-insensitive)
+    - "(?i)^.*/privacy[-_]*policy/?$"
+    - "(?i)^.*/terms[-_]*of[-_]*service/?$"
+    - "(?i)^.*/terms[-_]*and[-_]*conditions/?$"
+    - "(?i)^.*/shipping[-_]*policy/?$"
+    - "(?i)^.*/return[-_]*policy/?$"
+    - "(?i)^.*/about[-_]*us/?$"
+    - "(?i)^.*/contact[-_]*us/?$"
+    - "(?i)^.*/legal/?$"
+    - "(?i)^.*/disclaimer/?$"
+    - "(?i)^.*/cookie[-_]*policy/?$"
 
+# Analysis configuration (conservative thresholds)
 analysis:
   similarity_thresholds:
     high: 0.90
-    medium: 0.89
+    medium: 0.85
+  
   priority_percentiles:
-    high: 70  
-    medium: 30
+    high: 75
+    medium: 40
+  
+  # Conservative minimums to ensure data retention
   min_clicks: 1
-  min_impressions: 10
+  min_impressions: 5
   min_queries: 1
+  min_similarity_score: 0.80
+
+# Enhanced safety thresholds
+safety:
+  max_filter_percentage: 75  # Increased due to legal page filtering
+  min_retained_urls: 1000    
+  enable_diagnostics: true   
+  legal_page_filter_enabled: true
