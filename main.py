@@ -1,386 +1,490 @@
 """
-main.py — SEO Cannibalization Analyzer
-v2.1.1 • 2025-07-23
-
-Changelog
----------
-✓ Always write analysis_results, even when empty  
-✓ User-friendly “no data” banners in Analysis, Visualizations, Recommendations and Export tabs  
-✓ Added hint links so users can relax thresholds without re-uploading the CSV
+main.py - SEO Cannibalization Analysis Tool
+Enterprise-grade Streamlit application for analyzing content cannibalization
+using semantic similarity and GSC data.
 """
 
-from __future__ import annotations
+import streamlit as st
+import pandas as pd
+import numpy as np
 from datetime import datetime
 from io import BytesIO
+import logging
+import traceback
+from pathlib import Path
 
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
+# Import your existing modules
+from src.utils.config import Config
+from src.processors.url_cleaner import URLCleaner
+from src.data_loaders.gsc_loader import GSCLoader
+from src.data_loaders.similarity_loader import SimilarityLoader  
+from src.processors.data_aggregator import DataAggregator
+from src.analyzers.cannibalization_analyzer import CannibalizationAnalyzer
+from src.analyzers.priority_calculator import PriorityCalculator
 
-import helpers
-from column_mapper import validate_and_clean
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────
-# Initial page & session config
-# ─────────────────────────────────────────────────────────────
+# Page configuration
 st.set_page_config(
     page_title="SEO Cannibalization Analyzer",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-defaults = {
-    "data_loaded": False,
-    "analysis_complete": False,
-    "df": None,
-    "analysis_results": {},
-}
-for k, v in defaults.items():
-    st.session_state.setdefault(k, v)
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        padding: 2rem 0;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    .success-msg {
+        background: #d4edda;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #28a745;
+        margin: 1rem 0;
+    }
+    .error-msg {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #dc3545;
+        margin: 1rem 0;
+    }
+    .warning-msg {
+        background: #fff3cd;
+        color: #856404;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #ffc107;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────
-# Header
-# ─────────────────────────────────────────────────────────────
-st.title("🔍 SEO Cannibalization Analyzer")
-st.markdown("### Advanced Detection & Resolution Tool")
-st.markdown("---")
+# Initialize session state
+def init_session_state():
+    """Initialize session state variables"""
+    defaults = {
+        'gsc_data': None,
+        'similarity_data': None,
+        'analysis_results': None,
+        'config': None,
+        'analysis_complete': False,
+        'step': 1
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-# ─────────────────────────────────────────────────────────────
-# Sidebar – config panel
-# ─────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ Configuration")
+def load_config():
+    """Load application configuration"""
+    try:
+        if st.session_state.config is None:
+            st.session_state.config = Config()
+        return st.session_state.config
+    except Exception as e:
+        return None
 
-    st.subheader("Detection Thresholds")
-    click_threshold = st.slider(
-        "Minimum Click % Threshold", 1, 20, 5, help="Page share of query clicks"
-    ) / 100
-    min_clicks = st.number_input(
-        "Minimum Total Clicks", 1, value=10, help="Filter out very low-click queries"
+def handle_gsc_upload(uploaded_file):
+    """Handle GSC data upload and validation"""
+    try:
+        # Use your GSCLoader class
+        gsc_loader = GSCLoader()
+        
+        # Save uploaded file temporarily
+        temp_path = Path(f"temp_{uploaded_file.name}")
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        # Load and validate data
+        gsc_data = gsc_loader.load(temp_path)
+        
+        # Clean up temp file
+        temp_path.unlink()
+        
+        # Store in session state
+        st.session_state.gsc_data = gsc_data
+        
+        return True, gsc_data
+        
+    except Exception as e:
+        logger.error(f"Error loading GSC data: {str(e)}")
+        return False, str(e)
+
+def handle_similarity_upload(uploaded_file):
+    """Handle similarity data upload and validation"""
+    try:
+        # Use your SimilarityLoader class
+        similarity_loader = SimilarityLoader()
+        
+        # Save uploaded file temporarily
+        temp_path = Path(f"temp_{uploaded_file.name}")
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        # Load and validate data
+        similarity_data = similarity_loader.load(temp_path)
+        
+        # Clean up temp file
+        temp_path.unlink()
+        
+        # Store in session state
+        st.session_state.similarity_data = similarity_data
+        
+        return True, similarity_data
+        
+    except Exception as e:
+        logger.error(f"Error loading similarity data: {str(e)}")
+        return False, str(e)
+
+def run_analysis():
+    """Run the complete cannibalization analysis using your existing classes"""
+    try:
+        config = st.session_state.config
+        gsc_data = st.session_state.gsc_data
+        similarity_data = st.session_state.similarity_data
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Step 1: Clean URLs (10%)
+        status_text.text("Cleaning and filtering URLs...")
+        progress_bar.progress(10)
+        
+        url_cleaner = URLCleaner(config)
+        gsc_cleaned = url_cleaner.clean_dataframe(gsc_data, ['page'])
+        similarity_cleaned = url_cleaner.clean_dataframe(
+            similarity_data, 
+            ['primary_url', 'secondary_url']
+        )
+        
+        # Step 2: Aggregate GSC data (30%)
+        status_text.text("Aggregating GSC data by URL...")
+        progress_bar.progress(30)
+        
+        aggregator = DataAggregator()
+        gsc_aggregated = aggregator.aggregate_gsc_data(gsc_cleaned)
+        
+        # Step 3: Merge with similarity data (50%)
+        status_text.text("Merging GSC and similarity data...")
+        progress_bar.progress(50)
+        
+        merged_data = aggregator.merge_with_similarity(similarity_cleaned)
+        
+        # Step 4: Analyze cannibalization patterns (70%)
+        status_text.text("Analyzing cannibalization patterns...")
+        progress_bar.progress(70)
+        
+        analyzer = CannibalizationAnalyzer(config)
+        analyzed_data = analyzer.analyze(merged_data)
+        
+        # Step 5: Calculate priorities (90%)
+        status_text.text("Calculating priority levels...")
+        progress_bar.progress(90)
+        
+        priority_calc = PriorityCalculator(config)
+        final_results = priority_calc.calculate_priorities(analyzed_data)
+        
+        # Complete (100%)
+        status_text.text("Analysis complete!")
+        progress_bar.progress(100)
+        
+        # Store results
+        st.session_state.analysis_results = final_results
+        st.session_state.analysis_complete = True
+        
+        return True, final_results
+        
+    except Exception as e:
+        logger.error(f"Analysis failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False, str(e)
+
+def main():
+    """Main application function"""
+    # Initialize session state
+    init_session_state()
+    
+    # Load configuration
+    config = load_config()
+    if config is None:
+        st.error("❌ Failed to load configuration. Please ensure config.yaml exists and is properly formatted.")
+        st.stop()
+    
+    # Title and header
+    st.title("🔍 SEO Cannibalization Analyzer")
+    st.markdown("### Enterprise-Grade Content Cannibalization Analysis")
+    st.markdown("---")
+    
+    # Sidebar configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # Display current config summary
+        st.subheader("Current Settings")
+        if config:
+            st.write(f"**Similarity Thresholds:**")
+            st.write(f"- High: {config.similarity_thresholds.get('high', 0.90)}")
+            st.write(f"- Medium: {config.similarity_thresholds.get('medium', 0.89)}")
+            
+            st.write(f"**URL Filters:**")
+            st.write(f"- Excluded Parameters: {len(config.excluded_parameters)}")
+            st.write(f"- Excluded Pages: {len(config.excluded_pages)}")
+            st.write(f"- Excluded Patterns: {len(config.excluded_patterns)}")
+    
+    # Main content tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Data Upload", 
+        "🔍 Analysis", 
+        "📈 Results", 
+        "📥 Export"
+    ])
+    
+    # Tab 1: Data Upload
+    with tab1:
+        st.header("Data Upload")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📈 Google Search Console Data")
+            gsc_file = st.file_uploader(
+                "Upload GSC Export",
+                type=['csv', 'xlsx'],
+                help="CSV or Excel file with columns: query, page, clicks, impressions, position",
+                key="gsc_upload"
+            )
+            
+            if gsc_file:
+                success, result = handle_gsc_upload(gsc_file)
+                if success:
+                    st.markdown('<div class="success-msg">✅ GSC data loaded successfully!</div>', 
+                               unsafe_allow_html=True)
+                    st.write(f"**Rows:** {len(result):,}")
+                    st.write(f"**Unique Pages:** {result['page'].nunique():,}")
+                    st.write(f"**Unique Queries:** {result['query'].nunique():,}")
+                    st.write(f"**Total Clicks:** {int(result['clicks'].sum()):,}")
+                    
+                    with st.expander("Preview GSC Data"):
+                        st.dataframe(result.head())
+                else:
+                    st.markdown(f'<div class="error-msg">❌ Error loading GSC data: {result}</div>', 
+                               unsafe_allow_html=True)
+        
+        with col2:
+            st.subheader("🔗 Semantic Similarity Data")
+            similarity_file = st.file_uploader(
+                "Upload Similarity Data",
+                type=['csv'],
+                help="CSV file with columns: primary_url, secondary_url, similarity_score",
+                key="similarity_upload"
+            )
+            
+            if similarity_file:
+                success, result = handle_similarity_upload(similarity_file)
+                if success:
+                    st.markdown('<div class="success-msg">✅ Similarity data loaded successfully!</div>', 
+                               unsafe_allow_html=True)
+                    st.write(f"**URL Pairs:** {len(result):,}")
+                    st.write(f"**Unique URLs:** {pd.concat([result['primary_url'], result['secondary_url']]).nunique():,}")
+                    st.write(f"**Avg Similarity:** {result['similarity_score'].mean():.3f}")
+                    
+                    with st.expander("Preview Similarity Data"):
+                        st.dataframe(result.head())
+                else:
+                    st.markdown(f'<div class="error-msg">❌ Error loading similarity data: {result}</div>', 
+                               unsafe_allow_html=True)
+    
+    # Tab 2: Analysis
+    with tab2:
+        st.header("Cannibalization Analysis")
+        
+        if st.session_state.gsc_data is None or st.session_state.similarity_data is None:
+            st.markdown('<div class="warning-msg">⚠️ Please upload both GSC and Similarity data before running analysis.</div>', 
+                       unsafe_allow_html=True)
+        else:
+            st.success("✅ All required data loaded. Ready for analysis!")
+            
+            if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+                success, result = run_analysis()
+                
+                if success:
+                    st.success("🎉 Analysis completed successfully!")
+                    
+                    # Display summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total URL Pairs", f"{len(result):,}")
+                    
+                    with col2:
+                        actionable = result[~result['recommended_action'].isin(['Remove', 'False Positive'])]
+                        st.metric("Actionable Pairs", f"{len(actionable):,}")
+                    
+                    with col3:
+                        high_priority = result[result['priority'] == 'High']
+                        st.metric("High Priority", f"{len(high_priority):,}")
+                    
+                    with col4:
+                        merge_actions = result[result['recommended_action'] == 'Merge']
+                        st.metric("Merge Opportunities", f"{len(merge_actions):,}")
+                        
+                else:
+                    st.markdown(f'<div class="error-msg">❌ Analysis failed: {result}</div>', 
+                               unsafe_allow_html=True)
+    
+    # Tab 3: Results
+    with tab3:
+        st.header("Analysis Results")
+        
+        if not st.session_state.analysis_complete:
+            st.info("🔄 Run analysis first to view results.")
+        else:
+            results = st.session_state.analysis_results
+            
+            # Filters
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                action_filter = st.selectbox(
+                    "Filter by Action",
+                    options=['All'] + list(results['recommended_action'].unique()),
+                    key="action_filter"
+                )
+            
+            with col2:
+                priority_filter = st.selectbox(
+                    "Filter by Priority",
+                    options=['All'] + list(results['priority'].dropna().unique()),
+                    key="priority_filter"
+                )
+            
+            with col3:
+                min_similarity = st.slider(
+                    "Minimum Similarity Score",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.0,
+                    step=0.01,
+                    key="similarity_filter"
+                )
+            
+            # Apply filters
+            filtered_results = results.copy()
+            
+            if action_filter != 'All':
+                filtered_results = filtered_results[filtered_results['recommended_action'] == action_filter]
+            
+            if priority_filter != 'All':
+                filtered_results = filtered_results[filtered_results['priority'] == priority_filter]
+            
+            filtered_results = filtered_results[filtered_results['similarity_score'] >= min_similarity]
+            
+            st.write(f"**Showing {len(filtered_results):,} of {len(results):,} URL pairs**")
+            
+            # Display results
+            if len(filtered_results) > 0:
+                st.dataframe(
+                    filtered_results,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "similarity_score": st.column_config.NumberColumn(
+                            "Similarity Score",
+                            format="%.3f"
+                        ),
+                        "primary_url_clicks": st.column_config.NumberColumn(
+                            "Primary URL Clicks",
+                            format="%d"
+                        ),
+                        "secondary_url_clicks": st.column_config.NumberColumn(
+                            "Secondary URL Clicks", 
+                            format="%d"
+                        )
+                    }
+                )
+            else:
+                st.info("No results match the current filters.")
+    
+    # Tab 4: Export
+    with tab4:
+        st.header("Export Results")
+        
+        if not st.session_state.analysis_complete:
+            st.info("🔄 Complete analysis first to enable exports.")
+        else:
+            results = st.session_state.analysis_results
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📊 Full Results")
+                
+                # Create Excel file
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    results.to_excel(writer, sheet_name='All_Results', index=False)
+                    
+                    # Separate sheets for different actions
+                    for action in results['recommended_action'].unique():
+                        action_data = results[results['recommended_action'] == action]
+                        sheet_name = action.replace(' ', '_')[:31]  # Excel sheet name limit
+                        action_data.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download Full Analysis (Excel)",
+                    data=buffer,
+                    file_name=f"cannibalization_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col2:
+                st.subheader("🎯 Action Items")
+                
+                # Create action items CSV
+                actionable = results[~results['recommended_action'].isin(['Remove', 'False Positive'])]
+                actionable_sorted = actionable.sort_values(['priority', 'similarity_score'], 
+                                                         ascending=[False, False])
+                
+                csv = actionable_sorted.to_csv(index=False)
+                
+                st.download_button(
+                    label="📥 Download Action Items (CSV)",
+                    data=csv,
+                    file_name=f"action_items_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+                
+                st.write(f"**Actionable Items:** {len(actionable):,}")
+                if len(actionable) > 0:
+                    st.write("**Priority Distribution:**")
+                    priority_counts = actionable['priority'].value_counts()
+                    for priority, count in priority_counts.items():
+                        st.write(f"- {priority}: {count}")
+
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style="text-align: center; color: #666; padding: 1rem;">
+            <p>SEO Cannibalization Analyzer | Enterprise Edition</p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-    st.subheader("Brand Exclusions")
-    brand_terms = st.text_area("Brand terms (one per line)")
-    brand_list = [t.strip() for t in brand_terms.splitlines() if t.strip()]
-
-    st.subheader("Advanced Analysis")
-    enable_intent_detection = st.checkbox("Intent mismatch", True)
-    enable_serp_analysis = st.checkbox("SERP feature analysis", True)
-    enable_content_gap = st.checkbox("Content-gap analysis", True)
-    enable_ml_insights = st.checkbox("AI-powered insights", True)
-
-# ─────────────────────────────────────────────────────────────
-# Main tabs
-# ─────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📊 Data Input", "🔍 Analysis", "📈 Visualizations", "🎯 Recommendations", "📥 Export"]
-)
-
-# ─────────────────────────────────────────────────────────────
-# Tab 1 – CSV upload
-# ─────────────────────────────────────────────────────────────
-with tab1:
-    st.header("Data Source")
-    upf = st.file_uploader(
-        "Upload Google Search Console CSV",
-        type=["csv"],
-        help="Headers like ‘Landing Page’ or ‘Avg. Pos’ are mapped automatically.",
-    )
-
-    if upf:
-        try:
-            raw_df = pd.read_csv(upf, low_memory=False)
-            df, mapping, missing = validate_and_clean(raw_df)
-
-            if missing:
-                st.error(f"Missing required columns: {', '.join(missing)}")
-                st.stop()
-
-            st.session_state.df = df
-            st.session_state.data_loaded = True
-
-            st.success(
-                f"✅ Parsed **{len(df):,}** rows – all required fields recognised."
-            )
-            with st.expander("Preview first 5 rows", expanded=False):
-                st.dataframe(df.head())
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Unique Pages", f"{df['page'].nunique():,}")
-            c2.metric("Unique Queries", f"{df['query'].nunique():,}")
-            c3.metric("Total Clicks", f"{int(df['clicks'].sum()):,}")
-
-        except Exception as exc:
-            st.error(f"Error loading file: {exc}")
-
-# ─────────────────────────────────────────────────────────────
-# Tab 2 – analysis pipeline
-# ─────────────────────────────────────────────────────────────
-with tab2:
-    st.header("Cannibalization Analysis")
-
-    if st.session_state.data_loaded:
-        if st.button("Run Analysis", type="primary", use_container_width=True):
-            with st.spinner("Crunching numbers…"):
-                df = st.session_state.df
-                progress = st.progress(0)
-
-                # 1 Remove brand queries
-                progress.progress(15)
-                df_nb = helpers.remove_brand_queries(df, brand_list) if brand_list else df
-
-                # 2 Metrics per (query, page)
-                progress.progress(30)
-                qp = helpers.calculate_query_page_metrics(df_nb)
-
-                # 3 Filter by click/page thresholds
-                progress.progress(50)
-                qc = helpers.filter_queries_by_clicks_and_pages(
-                    qp, min_clicks=min_clicks
-                )
-
-                # 4 Aggregate & compute percentages
-                progress.progress(65)
-                wip = helpers.merge_and_aggregate(qp, qc)
-                wip = helpers.calculate_click_percentage(wip)
-                wip["clicks_pct_vs_query"] = wip.groupby("query")["clicks"].transform(
-                    lambda x: x / x.sum() if x.sum() else 0
-                )
-
-                # 5 Threshold filter
-                progress.progress(80)
-                keep = (
-                    wip[wip["clicks_pct_vs_query"] >= click_threshold]
-                    .groupby("query")
-                    .filter(lambda x: len(x) >= 2)["query"]
-                    .unique()
-                )
-                wip = wip[wip["query"].isin(keep)]
-
-                # 6 Merge page-level clicks
-                progress.progress(90)
-                wip = helpers.merge_with_page_clicks(wip, df)
-
-                # 7 Opportunity scoring & sort
-                progress.progress(98)
-                final_df = helpers.sort_and_finalize_output(
-                    helpers.define_opportunity_levels(wip)
-                )
-
-                # Ensure results object exists even if empty
-                st.session_state.analysis_results = {
-                    "all_opportunities": final_df,
-                    "immediate_opportunities": helpers.immediate_opps(final_df),
-                    "qa_data": helpers.create_qa_dataframe(df, final_df),
-                }
-                st.session_state.analysis_complete = True
-                progress.progress(100)
-
-                st.success("✅ Analysis complete!")
-
-    # Show results if available
-    if st.session_state.analysis_complete:
-        results_df = st.session_state.analysis_results["all_opportunities"]
-        if results_df.empty:
-            st.warning(
-                "No cannibalization issues detected with the current settings. "
-                "Try lowering the *Minimum Click % Threshold* or *Minimum Total Clicks* "
-                "in the sidebar and re-run the analysis."
-            )
-        else:
-            st.subheader("Cannibalization Issues Detected")
-            selected_queries = st.multiselect(
-                "Filter by Query",
-                options=results_df["query"].unique(),
-                key="query_filter",
-            )
-            status_filter = st.selectbox(
-                "Filter by Status",
-                options=["All", "Potential Opportunity", "Risk"],
-                key="status_filter",
-            )
-
-            filtered = results_df.copy()
-            if selected_queries:
-                filtered = filtered[filtered["query"].isin(selected_queries)]
-            if status_filter != "All":
-                filtered = filtered[filtered["comment"].str.contains(status_filter)]
-
-            st.dataframe(filtered, use_container_width=True, hide_index=True)
-    else:
-        st.info("Upload data and run the analysis first.")
-
-# ─────────────────────────────────────────────────────────────
-# Tab 3 – visualizations
-# ─────────────────────────────────────────────────────────────
-with tab3:
-    st.header("Visual Analysis")
-    if st.session_state.analysis_complete:
-        data = st.session_state.analysis_results["all_opportunities"]
-        if data.empty:
-            st.warning("No visualization available – the analysis returned no rows.")
-            st.stop()
-
-        c1, c2 = st.columns(2)
-
-        # Distribution bar
-        pages_per_q = data.groupby("query")["page"].count().value_counts().sort_index()
-        fig_dist = go.Figure(
-            go.Bar(
-                x=[f"{n} Pages" for n in pages_per_q.index],
-                y=pages_per_q.values,
-                marker_color=[
-                    "#28a745" if n == 2 else "#ffc107" if n == 3 else "#dc3545"
-                    for n in pages_per_q.index
-                ],
-            )
-        )
-        fig_dist.update_layout(
-            title="Cannibalization Distribution",
-            xaxis_title="Competing Pages per Query",
-            yaxis_title="Number of Queries",
-            height=400,
-        )
-        c1.plotly_chart(fig_dist, use_container_width=True)
-
-        # Opportunity vs risk pie
-        com = data["comment"].value_counts()
-        fig_pie = go.Figure(
-            go.Pie(
-                labels=com.index,
-                values=com.values,
-                hole=0.3,
-                marker_colors=[
-                    "#28a745" if "Opportunity" in x else "#dc3545" for x in com.index
-                ],
-            )
-        )
-        fig_pie.update_layout(title="Opportunity vs Risk", height=400)
-        c2.plotly_chart(fig_pie, use_container_width=True)
-
-        # Click distribution
-        st.subheader("Top 10 Cannibalised Queries")
-        top_q = data.groupby("query")["clicks_query"].sum().nlargest(10).index
-        fig_clicks = px.bar(
-            data[data["query"].isin(top_q)],
-            x="query",
-            y="clicks_query",
-            color="page",
-            labels={"clicks_query": "Clicks"},
-            title="Click Distribution for Top Queries",
-        )
-        fig_clicks.update_layout(height=500)
-        st.plotly_chart(fig_clicks, use_container_width=True)
-    else:
-        st.info("Run the analysis first to generate visualisations.")
-
-# ─────────────────────────────────────────────────────────────
-# Tab 4 – recommendations
-# ─────────────────────────────────────────────────────────────
-with tab4:
-    st.header("Consolidation Recommendations")
-    if st.session_state.analysis_complete:
-        imm = st.session_state.analysis_results["immediate_opportunities"]
-        if imm.empty:
-            st.info(
-                "No immediate consolidation opportunities identified with current "
-                "thresholds. Adjust thresholds if you expected results."
-            )
-        else:
-            st.subheader("🎯 High-Priority Opportunities")
-            for q in imm["query"].unique():
-                with st.expander(f"Query: {q}"):
-                    qd = imm[imm["query"] == q].sort_values(
-                        "clicks_query", ascending=False
-                    )
-                    primary = qd.iloc[0]
-                    st.info(f"🏆 {primary['page']}")
-                    st.write(f"Clicks → {primary['clicks_query']:,}")
-                    st.write(f"Avg Position → {primary['avg_position']:.1f}")
-
-                    st.markdown("**Pages to Redirect (301):**")
-                    for _, row in qd.iloc[1:].iterrows():
-                        st.write(f"↪️ {row['page']} – {row['clicks_query']:,} clicks")
-
-                    total = qd["clicks_query"].sum()
-                    recover = int((total - primary["clicks_query"]) * 0.7)
-                    st.success(f"Potential recovery ≈ +{recover:,} clicks/month")
-    else:
-        st.info("Analyse data to see recommendations.")
-
-# ─────────────────────────────────────────────────────────────
-# Tab 5 – export
-# ─────────────────────────────────────────────────────────────
-with tab5:
-    st.header("Export Results")
-    if st.session_state.analysis_complete:
-        res = st.session_state.analysis_results["all_opportunities"]
-        if res.empty:
-            st.info("Nothing to export – the analysis returned no rows.")
-            st.stop()
-
-        c1, c2 = st.columns(2)
-
-        # Excel workbook
-        with BytesIO() as buf:
-            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
-                st.session_state.analysis_results["all_opportunities"].to_excel(
-                    xw, sheet_name="all_potential_opps", index=False
-                )
-                st.session_state.analysis_results["immediate_opportunities"].to_excel(
-                    xw, sheet_name="high_likelihood_opps", index=False
-                )
-                st.session_state.analysis_results["qa_data"].to_excel(
-                    xw, sheet_name="risk_qa_data", index=False
-                )
-            buf.seek(0)
-            c1.download_button(
-                "📊 Download Full Report (Excel)",
-                buf,
-                file_name=f"seo_cannibalization_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-            )
-
-        # Redirect CSV
-        imm = st.session_state.analysis_results["immediate_opportunities"]
-        if not imm.empty:
-            redir_rows = []
-            for q in imm["query"].unique():
-                qd = imm[imm["query"] == q].sort_values(
-                    "clicks_query", ascending=False
-                )
-                primary = qd.iloc[0]["page"]
-                for _, row in qd.iloc[1:].iterrows():
-                    redir_rows.append(
-                        {
-                            "url_from": row["page"],
-                            "url_to": primary,
-                            "query": q,
-                            "clicks_to_recover": row["clicks_query"],
-                        }
-                    )
-            csv = pd.DataFrame(redir_rows).to_csv(index=False)
-            c2.download_button(
-                "🔄 Download Redirect Map (CSV)",
-                csv,
-                file_name=f"redirect_map_{datetime.now():%Y%m%d_%H%M%S}.csv",
-                mime="text/csv",
-            )
-        else:
-            c2.info("No redirects to export.")
-    else:
-        st.info("Run the analysis first.")
-
-# ─────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown(
-    '<div style="text-align:center;color:#666">'
-    "SEO Cannibalization Analyzer v2.1.1 | Built with ❤️ for SEO professionals"
-    "</div>",
-    unsafe_allow_html=True,
-)
+if __name__ == "__main__":
+    main()
