@@ -158,6 +158,23 @@ def run_analysis():
         progress_bar = st.progress(0)
         status_text = st.empty()
         
+        # DEBUG: Initial data check
+        st.write("🔍 **PIPELINE DIAGNOSTICS:**")
+        st.write(f"✅ GSC Data: {len(gsc_data)} rows, {gsc_data['page'].nunique()} unique pages")
+        st.write(f"✅ Similarity Data: {len(similarity_data)} rows")
+        
+        # Show sample URLs for format comparison
+        st.write("📋 **URL Format Check:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**GSC Sample URLs:**")
+            for url in gsc_data['page'].head(3):
+                st.write(f"- `{url}`")
+        with col2:
+            st.write("**Similarity Sample URLs:**")
+            for url in similarity_data.iloc[:3, 0]:  # First URL column
+                st.write(f"- `{url}`")
+        
         # Step 1: Clean URLs (10%)
         status_text.text("Cleaning and filtering URLs...")
         progress_bar.progress(10)
@@ -166,8 +183,15 @@ def run_analysis():
         gsc_cleaned = url_cleaner.clean_dataframe(gsc_data, ['page'])
         similarity_cleaned = url_cleaner.clean_dataframe(
             similarity_data, 
-            ['primary_url', 'secondary_url']
+            ['primary_url', 'secondary_url'] if 'primary_url' in similarity_data.columns 
+            else [similarity_data.columns[0], similarity_data.columns[1]]
         )
+        
+        # DEBUG: After URL cleaning
+        st.write(f"🧹 After URL cleaning: GSC={len(gsc_cleaned)}, Similarity={len(similarity_cleaned)}")
+        if len(gsc_cleaned) == 0:
+            st.error("❌ All GSC data was filtered out during URL cleaning!")
+            return False, "URL cleaning removed all GSC data"
         
         # Step 2: Aggregate GSC data (30%)
         status_text.text("Aggregating GSC data by URL...")
@@ -176,11 +200,30 @@ def run_analysis():
         aggregator = DataAggregator()
         gsc_aggregated = aggregator.aggregate_gsc_data(gsc_cleaned)
         
+        # DEBUG: After aggregation
+        st.write(f"📊 After aggregation: {len(gsc_aggregated) if gsc_aggregated is not None else 0} rows")
+        
         # Step 3: Merge with similarity data (50%)
         status_text.text("Merging GSC and similarity data...")
         progress_bar.progress(50)
         
         merged_data = aggregator.merge_with_similarity(similarity_cleaned)
+        
+        # DEBUG: Critical merge check
+        st.write(f"🔗 After merge: {len(merged_data) if merged_data is not None else 0} rows")
+        if merged_data is None or len(merged_data) == 0:
+            st.error("❌ ZERO RESULTS AFTER MERGE - This is your problem!")
+            
+            # Debug URL matching
+            if hasattr(aggregator, 'gsc_aggregated') and aggregator.gsc_aggregated is not None:
+                gsc_urls = set(aggregator.gsc_aggregated.iloc[:, 0] if len(aggregator.gsc_aggregated.columns) > 0 else [])
+                sim_urls = set(similarity_cleaned.iloc[:, 0]) | set(similarity_cleaned.iloc[:, 1])
+                matches = len(gsc_urls.intersection(sim_urls))
+                st.write(f"🔍 URL overlap check: {matches} URLs match between datasets")
+                if matches == 0:
+                    st.write("**Root cause: No URL matches between GSC and similarity data**")
+            
+            return False, "No data after merge - URL format mismatch likely"
         
         # Step 4: Analyze cannibalization patterns (70%)
         status_text.text("Analyzing cannibalization patterns...")
@@ -189,12 +232,18 @@ def run_analysis():
         analyzer = CannibalizationAnalyzer(config)
         analyzed_data = analyzer.analyze(merged_data)
         
+        # DEBUG: After analysis
+        st.write(f"🔬 After analysis: {len(analyzed_data) if analyzed_data is not None else 0} rows")
+        
         # Step 5: Calculate priorities (90%)
         status_text.text("Calculating priority levels...")
         progress_bar.progress(90)
         
         priority_calc = PriorityCalculator(config)
         final_results = priority_calc.calculate_priorities(analyzed_data)
+        
+        # DEBUG: Final results
+        st.write(f"🎯 Final results: {len(final_results) if final_results is not None else 0} rows")
         
         # Complete (100%)
         status_text.text("Analysis complete!")
@@ -209,6 +258,7 @@ def run_analysis():
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         logger.error(traceback.format_exc())
+        st.exception(e)  # Show full traceback in Streamlit
         return False, str(e)
 
 def main():
