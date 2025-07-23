@@ -281,17 +281,29 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # Display current config summary
-        st.subheader("Current Settings")
-        if config:
-            st.write(f"**Similarity Thresholds:**")
-            st.write(f"- High: {config.similarity_thresholds.get('high', 0.90)}")
-            st.write(f"- Medium: {config.similarity_thresholds.get('medium', 0.89)}")
-            
-            st.write(f"**URL Filters:**")
-            st.write(f"- Excluded Parameters: {len(config.excluded_parameters)}")
-            st.write(f"- Excluded Pages: {len(config.excluded_pages)}")
-            st.write(f"- Excluded Patterns: {len(config.excluded_patterns)}")
+    # Display current config summary
+    st.subheader("Current Settings")
+    if config:
+        st.write(f"**Similarity Thresholds:**")
+    
+    # Defensive access to similarity_thresholds
+    if hasattr(config, 'similarity_thresholds'):
+        st.write(f"- High: {config.similarity_thresholds.get('high', 0.90)}")
+        st.write(f"- Medium: {config.similarity_thresholds.get('medium', 0.85)}")
+    else:
+        st.write("- High: 0.90 (default)")
+        st.write("- Medium: 0.85 (default)")
+    
+    st.write(f"**URL Filters:**")
+    
+    # Defensive access to URL filter counts
+    excluded_params = getattr(config, 'excluded_parameters', [])
+    excluded_pages = getattr(config, 'excluded_pages', [])
+    excluded_patterns = getattr(config, 'excluded_patterns', [])
+    
+    st.write(f"- Excluded Parameters: {len(excluded_params)}")
+    st.write(f"- Excluded Pages: {len(excluded_pages)}")
+    st.write(f"- Excluded Patterns: {len(excluded_patterns)}")
     
     # Main content tabs
     tab1, tab2, tab3, tab4 = st.tabs([
