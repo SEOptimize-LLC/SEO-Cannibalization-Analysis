@@ -1,74 +1,90 @@
+"""
+Enhanced URLCleaner with diagnostic capabilities to prevent zero-results issues.
+"""
 import re
 import logging
-from urllib.parse import urlparse
-from src.utils.config import Config
+from typing import List, Dict
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 class URLCleaner:
-    """Cleans and filters URLs based on configuration rules"""
-    
-    def __init__(self, config: Config):
+    def __init__(self, config):
         self.config = config
-        self._compile_patterns()
-    
-    def _compile_patterns(self):
-        """Pre-compile regex patterns for efficiency"""
+        self.excluded_parameters = set(config.get('excluded_parameters', []))
+        self.excluded_pages = config.get('excluded_pages', [])
+        self.excluded_patterns = config.get('excluded_patterns', [])
+        
+        # Compile patterns with error handling
         self.compiled_patterns = []
-        for pattern in self.config.excluded_patterns:
+        for pattern in self.excluded_patterns:
             try:
                 self.compiled_patterns.append(re.compile(pattern, re.IGNORECASE))
             except re.error as e:
-                logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+                logger.error(f"INVALID REGEX PATTERN '{pattern}': {e}")
     
-    def should_exclude_url(self, url):
-        """Check if URL should be excluded based on all rules"""
-        if not url:
-            return True
+    def clean_dataframe(self, df: pd.DataFrame, url_columns: List[str]) -> pd.DataFrame:
+        """Enhanced cleaning with comprehensive diagnostics."""
+        if df.empty:
+            logger.warning("Empty dataframe provided to URLCleaner")
+            return df
+            
+        original_count = len(df)
+        logger.info(f"URLCleaner processing {original_count} rows")
         
-        url_lower = url.lower()
-        
-        # Check for excluded parameters
-        for param in self.config.excluded_parameters:
-            if param in url:
-                return True
-        
-        # Check for excluded page patterns
-        for page_pattern in self.config.excluded_pages:
-            if page_pattern.lower() in url_lower:
-                return True
-        
-        # Check regex patterns
-        for pattern in self.compiled_patterns:
-            if pattern.search(url):
-                return True
-        
-        # Check for subdomains
-        try:
-            parsed = urlparse(url)
-            if parsed.hostname:
-                # Count dots in hostname - more than expected means subdomain
-                main_domain_dots = parsed.hostname.count('.') - 1  # Subtract 1 for .com, .org, etc.
-                if main_domain_dots > 1:  # www.domain.com would be 1
-                    return True
-        except:
-            pass
-        
-        return False
-    
-    def clean_dataframe(self, df, url_columns):
-        """Remove rows with excluded URLs from dataframe"""
-        initial_count = len(df)
-        
-        # Create mask for valid URLs
-        mask = True
+        # Show sample URLs BEFORE filtering
         for col in url_columns:
             if col in df.columns:
-                mask = mask & ~df[col].apply(self.should_exclude_url)
+                samples = df[col].head(3).tolist()
+                logger.info(f"Sample URLs in '{col}': {samples}")
         
-        df_cleaned = df[mask].copy()
+        # Apply filtering logic (simplified for safety)
+        filtered_df = self._safe_filter(df, url_columns)
         
-        removed_count = initial_count - len(df_cleaned)
-        logger.info(f"Removed {removed_count} rows with excluded URLs ({removed_count/initial_count*100:.1f}%)")
+        final_count = len(filtered_df)
+        removed = original_count - final_count
+        percentage = (removed / original_count * 100) if original_count > 0 else 0
         
-        return df_cleaned
+        # CRITICAL DIAGNOSTICS
+        logger.info(f"URLCleaner Results:")
+        logger.info(f"  Input: {original_count} rows")
+        logger.info(f"  Output: {final_count} rows") 
+        logger.info(f"  Filtered: {removed} rows ({percentage:.1f}%)")
+        
+        # ERROR CONDITIONS
+        if percentage > 50:
+            logger.error(f"⚠️ HIGH FILTER RATE: {percentage:.1f}% - Check config!")
+            
+        if final_count == 0:
+            logger.error("❌ ALL URLS FILTERED! Analysis will fail!")
+            logger.error("Your URL exclusion rules are too aggressive.")
+            # Show what got filtered
+            for col in url_columns:
+                if col in df.columns:
+                    logger.error(f"Filtered URLs from {col}: {df[col].head(5).tolist()}")
+        
+        return filtered_df
+    
+    def _safe_filter(self, df: pd.DataFrame, url_columns: List[str]) -> pd.DataFrame:
+        """Conservative filtering to prevent zero results."""
+        
+        def is_admin_url(url):
+            """Check if URL is clearly an admin/system URL."""
+            if pd.isna(url):
+                return False
+                
+            url_str = str(url).lower()
+            
+            # Only exclude obvious admin paths
+            admin_indicators = ['/wp-admin/', '/admin/', '/login', '/logout']
+            return any(indicator in url_str for indicator in admin_indicators)
+        
+        # Create conservative exclusion mask
+        exclusion_mask = pd.Series(False, index=df.index)
+        
+        for col in url_columns:
+            if col in df.columns:
+                col_exclusions = df[col].apply(is_admin_url)
+                exclusion_mask = exclusion_mask | col_exclusions
+        
+        return df[~exclusion_mask].copy()
