@@ -1,54 +1,35 @@
-# URL Filtering Configuration
+# config.yaml - CONSERVATIVE URL filtering (replace your current config)
 url_filters:
-  # Parameters to exclude
+  # Only exclude obvious tracking parameters
   excluded_parameters:
-    - "?"
-    - "="
-    - "#"
-    - "&"
-  
-  # Page patterns to exclude (case-insensitive)
+    - "utm_source"
+    - "utm_medium" 
+    - "utm_campaign"
+    - "fbclid"
+    - "gclid"
+    - "sessionid"
+    
+  # Only exclude clear admin/system pages
   excluded_pages:
-    - "privacy-policy"
-    - "privacy_policy"
-    - "privacypolicy"
-    - "terms-of-service"
-    - "terms_of_service"
-    - "termsofservice"
-    - "terms-and-conditions"
-    - "shipping-policy"
-    - "shipping_policy"
-    - "return-policy"
-    - "return_policy"
-    - "about-us"
-    - "about_us"
-    - "aboutus"
-    - "contact-us"
-    - "contact_us"
-    - "contactus"
-    - "legal"
-    - "disclaimer"
-    - "cookie-policy"
-    - "cookie_policy"
-  
-  # Regex patterns for exclusion
+    - "/wp-admin/"
+    - "/admin/"
+    - "/login"
+    - "/logout"
+    - "/404.html"
+    
+  # Minimal regex patterns (VERY SPECIFIC)
   excluded_patterns:
-    - "/page/\\d+/"  # Paginated pages
-    - "/\\d{4}/\\d{2}/\\d{2}"  # Archive pages (YYYY/MM/DD)
-    - "^https?://[^/]*\\."  # Subdomains (anything before the main domain)
+    - "^.*/wp-admin/.*$"    # WordPress admin only
+    - "^.*/feed/?$"         # RSS feeds only
+    - "^.*\\?p=\\d+$"       # WP pagination only
 
-# Analysis Configuration
 analysis:
   similarity_thresholds:
-    high: 0.90  # 90% or higher
-    medium: 0.89  # 89% or lower
-  
-  # Minimum thresholds for significance
-  min_clicks: 1
-  min_queries: 1
-  
-  # Priority calculation percentiles
+    high: 0.90
+    medium: 0.89
   priority_percentiles:
-    high: 70  # Top 30%
-    medium: 30  # Middle 40%
-    # Low: Bottom 30%
+    high: 70  
+    medium: 30
+  min_clicks: 1
+  min_impressions: 10
+  min_queries: 1
